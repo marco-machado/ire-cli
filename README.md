@@ -2,14 +2,31 @@
 
 `ire-cli` is an agent-first CLI for read-only access to Jira Cloud and Bitbucket Cloud. It is designed for coding agents such as Claude Code, Codex, Gemini, and opencode that need deterministic API primitives with structured output.
 
-The npm package is `ire-cli`; the executable is `ire`.
+The npm package is `@marco.machado/ire-cli`; the executable is `ire`.
+
+## Installation
+
+Run without installing globally:
+
+```sh
+npx @marco.machado/ire-cli --help
+```
+
+Install globally:
+
+```sh
+npm install -g @marco.machado/ire-cli
+ire --help
+```
+
+`ire-cli` requires Node.js `>=22`.
 
 ## Design goals
 
 - Provide thin, composable Jira and Bitbucket primitives.
 - Emit stable JSON envelopes by default.
 - Normalize provider responses into agent-oriented schemas.
-- Keep v1 read-only, while leaving room for future write commands.
+- Provide read-only inspection commands for Jira, Bitbucket pull requests, and Bitbucket Pipelines.
 - Avoid interactive prompts, spinners, fuzzy selection, and human-first terminal formatting in the default path.
 
 ## Output contract
@@ -106,58 +123,84 @@ Example project config:
 }
 ```
 
-Profiles are not part of v1.
+Inspect resolved configuration without provider calls:
 
-## v1 command surface
+```sh
+ire config inspect
+```
 
-Available Jira commands:
+## Commands
+
+### Jira
 
 ```text
 ire jira issue get KEY
-```
-
-Use `--raw` to return the provider-native Jira payload inside the standard
-success envelope. Use `--debug` to include redacted request metadata.
-
-Planned Jira commands:
-
-```text
 ire jira issue search --jql "project = ABC ORDER BY updated DESC"
 ire jira issue comments list KEY
 ```
 
 Jira issue keys are always explicit. The CLI does not infer Jira issue identity from branch names.
 
-Available Bitbucket commands:
+Supported options:
+
+- `ire jira issue get`: `--raw`, `--debug`, Jira config flags.
+- `ire jira issue search`: `--jql`, `--limit`, `--cursor`, `--debug`, Jira config flags.
+- `ire jira issue comments list`: `--limit`, `--cursor`, `--raw`, `--debug`, Jira config flags.
+
+Jira config flags are:
+
+```text
+--jira-base-url <url>
+--jira-email <email>
+--jira-api-token <token>
+```
+
+### Bitbucket pull requests
 
 ```text
 ire bitbucket pr get ID [--repo workspace/repo]
 ire bitbucket pr list [--repo workspace/repo]
 ire bitbucket pr comments list ID [--repo workspace/repo]
 ire bitbucket pr files ID [--repo workspace/repo]
+ire bitbucket pr diff ID [--repo workspace/repo]
 ```
-
-Planned Bitbucket commands:
-
-```text
-ire bitbucket pr diff ID --repo workspace/repo
-```
-
-Planned Bitbucket Pipelines commands:
-
-```text
-ire bitbucket pipelines list --repo workspace/repo --branch main
-ire bitbucket pipelines latest --repo workspace/repo --branch current
-ire bitbucket pipelines get UUID --repo workspace/repo
-ire bitbucket pipelines steps list UUID --repo workspace/repo
-ire bitbucket pipelines log UUID STEP_UUID --repo workspace/repo
-```
-
-Pipeline artifacts, reruns, and stops are out of scope for v1.
 
 Bitbucket repository identity can be provided explicitly via `--repo workspace/repo`, read from config (`bitbucket.workspace` + `bitbucket.repo`), or inferred from local Git remotes when unambiguous. Responses include the resolved workspace/repo in `meta.bitbucket`.
 
-Bitbucket PR list, PR comments list, and PR files support bounded pagination with `--limit` (default 50, maximum 100) and `--cursor`. There is no fetch-all mode.
+Supported options:
+
+- `ire bitbucket pr get`: `--repo`, `--raw`, `--debug`, Bitbucket config flags.
+- `ire bitbucket pr list`: `--repo`, `--limit`, `--cursor`, `--debug`, Bitbucket config flags.
+- `ire bitbucket pr comments list`: `--repo`, `--limit`, `--cursor`, `--debug`, Bitbucket config flags.
+- `ire bitbucket pr files`: `--repo`, `--limit`, `--cursor`, `--debug`, Bitbucket config flags.
+- `ire bitbucket pr diff`: `--repo`, `--debug`, Bitbucket config flags.
+
+### Bitbucket Pipelines
+
+```text
+ire bitbucket pipelines list [--repo workspace/repo] [--branch main]
+ire bitbucket pipelines latest [--repo workspace/repo] [--branch main]
+ire bitbucket pipelines get UUID [--repo workspace/repo]
+ire bitbucket pipelines steps list UUID [--repo workspace/repo]
+ire bitbucket pipelines log UUID STEP_UUID [--repo workspace/repo]
+```
+
+Supported options:
+
+- `ire bitbucket pipelines list`: `--repo`, `--branch`, `--limit`, `--cursor`, `--debug`, Bitbucket config flags.
+- `ire bitbucket pipelines latest`: `--repo`, `--branch`, `--debug`, Bitbucket config flags.
+- `ire bitbucket pipelines get`: `--repo`, `--debug`, Bitbucket config flags.
+- `ire bitbucket pipelines steps list`: `--repo`, `--limit`, `--cursor`, `--debug`, Bitbucket config flags.
+- `ire bitbucket pipelines log`: `--repo`, `--debug`, Bitbucket config flags.
+
+Bitbucket config flags are:
+
+```text
+--bitbucket-workspace <workspace>
+--bitbucket-repo <repo>
+--bitbucket-username <username>
+--bitbucket-app-password <password>
+```
 
 ## Pagination
 
@@ -193,19 +236,11 @@ Responses include pagination metadata:
 }
 ```
 
-`--all` is not part of v1.
-
 ## Diagnostics
-
-Inspect resolved configuration without provider calls:
-
-```text
-ire config inspect
-```
 
 Check authentication with lightweight provider requests:
 
-```text
+```sh
 ire auth check
 ire auth check jira
 ire auth check bitbucket
@@ -226,6 +261,14 @@ Use `--debug` to include redacted request metadata under `meta.debug`. Debug out
 7 ambiguity/conflict
 ```
 
+## Development
+
+```sh
+npm install
+npm test
+npm run build
+```
+
 ## Runtime
 
-v1 targets Node.js `>=22`, ESM, TypeScript, Commander, built-in `fetch`/Undici, and Zod for boundary validation.
+`ire-cli` targets Node.js `>=22`, ESM, TypeScript, Commander, built-in `fetch`/Undici, and Zod for boundary validation.
