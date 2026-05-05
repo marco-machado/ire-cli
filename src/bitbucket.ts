@@ -53,6 +53,13 @@ type BitbucketPullRequestFilesOptions = {
   debugRequests?: BitbucketDebugRequest[];
 };
 
+type BitbucketPullRequestDiffOptions = {
+  repo?: string;
+  cwd?: string;
+  fetchImpl?: Fetch;
+  debugRequests?: BitbucketDebugRequest[];
+};
+
 export class BitbucketConfigurationError extends Error {
   readonly code = "AUTH_CONFIG_INCOMPLETE";
   readonly details: { provider: "bitbucket"; missing: string[] };
@@ -248,6 +255,12 @@ const normalizedPullRequestFilesSchema = z
   .object({
     files: z.array(normalizedPullRequestFileSchema),
     pagination: paginationSchema,
+  })
+  .strict();
+
+const normalizedPullRequestDiffSchema = z
+  .object({
+    diff: z.string(),
   })
   .strict();
 
@@ -597,6 +610,22 @@ function normalizePullRequestFiles(providerPage: unknown, limit: number): z.infe
   return parsedResult.data;
 }
 
+function normalizePullRequestDiff(diff: string): z.infer<typeof normalizedPullRequestDiffSchema> {
+  const parsedResult = normalizedPullRequestDiffSchema.safeParse({ diff });
+  if (!parsedResult.success) {
+    throw new BitbucketNormalizedOutputError(
+      parsedResult.error.issues.map((issue) => ({
+        code: issue.code,
+        message: issue.message,
+        path: issue.path.join("."),
+      })),
+      "Normalized Bitbucket pull request diff output failed validation",
+    );
+  }
+
+  return parsedResult.data;
+}
+
 async function readProviderJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
@@ -642,6 +671,10 @@ function pullRequestFilesUrl(repo: BitbucketRepoIdentity, id: number, limit: num
   );
   url.searchParams.set("pagelen", String(limit));
   return String(url);
+}
+
+function pullRequestDiffUrl(repo: BitbucketRepoIdentity, id: number): string {
+  return `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(repo.workspace)}/${encodeURIComponent(repo.repo)}/pullrequests/${id}/diff`;
 }
 
 export async function listBitbucketPullRequests(
@@ -829,6 +862,69 @@ export async function listBitbucketPullRequestFiles(
 
   const body = await readProviderJson(response);
   return { data: normalizePullRequestFiles(body, limit), repo };
+}
+
+export async function getBitbucketPullRequestDiff(
+  config: ResolvedConfig,
+  id: number,
+  options: BitbucketPullRequestDiffOptions = {},
+): Promise<{ data: unknown; repo: BitbucketRepoIdentity }> {
+  assertBitbucketConfigComplete(config);
+
+  const repo = resolveBitbucketRepo(config, {
+    repo: options.repo,
+    cwd: options.cwd,
+  });
+  const url = pullRequestDiffUrl(repo, id);
+  const startedAt = Date.now();
+  const fetchImpl = options.fetchImpl ?? fetch;
+  let response: Response;
+
+  try {
+    response = await fetchImpl(url, {
+      headers: {
+        accept: "text/plain",
+        authorization: basicAuthorization(
+          config.bitbucket.username.value,
+          config.bitbucket.appPassword.value,
+        ),
+      },
+    });
+  } catch {
+    options.debugRequests?.push({
+      provider: "bitbucket",
+      method: "GET",
+      url,
+      latencyMs: Date.now() - startedAt,
+    });
+    throw new BitbucketNetworkError();
+  }
+
+  options.debugRequests?.push({
+    provider: "bitbucket",
+    method: "GET",
+    url,
+    status: response.status,
+    latencyMs: Date.now() - startedAt,
+  });
+
+  if (response.status === 404) {
+    throw new BitbucketPullRequestNotFoundError(id, repo);
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    throw new BitbucketAuthenticationError(response.status);
+  }
+
+  if (!response.ok) {
+    throw new BitbucketProviderError(
+      "Bitbucket provider request failed",
+      response.status,
+    );
+  }
+
+  const body = await response.text();
+  return { data: normalizePullRequestDiff(body), repo };
 }
 
 export async function getBitbucketPullRequest(
