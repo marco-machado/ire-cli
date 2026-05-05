@@ -15,6 +15,7 @@ import {
   getBitbucketPullRequest,
   getBitbucketPullRequestDiff,
   getLatestBitbucketPipeline,
+  listBitbucketPipelineSteps,
   listBitbucketPipelines,
   listBitbucketPullRequestComments,
   listBitbucketPullRequestFiles,
@@ -986,6 +987,84 @@ bitbucketPipelinesCommand
       const result = await listBitbucketPipelines(config, {
         repo: flags.repo,
         branch: flags.branch,
+        limit: requestedLimit,
+        cursor: flags.cursor,
+        debugRequests: flags.debug ? debugRequests : undefined,
+      });
+
+      writeEnvelope({
+        success: true,
+        schemaVersion: "1.0",
+        data: result.data,
+        meta: { ...meta, bitbucket: result.repo },
+      });
+    } catch (error) {
+      if (writeBitbucketCommandError(error, meta)) return;
+      writeEnvelope({
+        success: false,
+        schemaVersion: "1.0",
+        error: { code: "INTERNAL_ERROR", message: "Unexpected internal error" },
+        meta,
+      });
+      process.exitCode = 1;
+    }
+  });
+
+const bitbucketPipelineStepsCommand = bitbucketPipelinesCommand
+  .command("steps")
+  .description("Read Bitbucket Pipelines steps");
+
+bitbucketPipelineStepsCommand
+  .command("list")
+  .description("List steps for a specific Bitbucket Pipelines run")
+  .argument("[uuid]", "Bitbucket Pipelines run UUID")
+  .option("--repo <repo>", "Bitbucket repository identity as workspace/repo")
+  .option("--limit <limit>")
+  .option("--cursor <cursor>")
+  .option("--debug", "Include redacted provider request metadata")
+  .option("--bitbucket-workspace <workspace>")
+  .option("--bitbucket-repo <repo>")
+  .option("--bitbucket-username <username>")
+  .option("--bitbucket-app-password <password>")
+  .action(async (uuid: string | undefined, flags) => {
+    const debugRequests: BitbucketDebugRequest[] = [];
+    const meta: Record<string, unknown> = flags.debug ? { debug: { requests: debugRequests } } : {};
+
+    try {
+      if (uuid === undefined) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: "MISSING_ARGUMENT",
+            message: "Bitbucket pipelines steps list requires a UUID",
+            details: { argument: "UUID" },
+          },
+          meta: {},
+        });
+        process.exitCode = 2;
+        return;
+      }
+
+      const requestedLimit = flags.limit === undefined ? 50 : Number(flags.limit);
+      if (!Number.isInteger(requestedLimit) || requestedLimit < 1) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: "INVALID_LIMIT",
+            message: "Bitbucket pipeline steps list limit must be a positive integer",
+            details: { limit: Number.isNaN(requestedLimit) ? flags.limit : requestedLimit, min: 1, max: 100 },
+          },
+          meta: {},
+        });
+        process.exitCode = 2;
+        return;
+      }
+
+      const config = resolveConfig({ flags, redactSecrets: false });
+      const result = await listBitbucketPipelineSteps(config, uuid, {
+        repo: flags.repo,
         limit: requestedLimit,
         cursor: flags.cursor,
         debugRequests: flags.debug ? debugRequests : undefined,

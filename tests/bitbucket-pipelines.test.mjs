@@ -57,6 +57,138 @@ async function runCommand(command, args, options = {}) {
   });
 }
 
+test("bitbucket pipelines steps list fetches a pipeline UUID and emits normalized steps", async () => {
+  const hookPath = await writeFetchHook(`
+    globalThis.fetch = async (input, init = {}) => {
+      const url = String(input);
+      const headers = new Headers(init.headers);
+      if (url !== "https://api.bitbucket.org/2.0/repositories/workspace-one/repo-one/pipelines/%7Bpipeline-1%7D/steps/?pagelen=50") {
+        return Response.json({ message: "unexpected url", url }, { status: 500 });
+      }
+      const expectedAuthorization = "Basic " + Buffer.from("bb-user:bb-secret").toString("base64");
+      if (headers.get("authorization") !== expectedAuthorization) {
+        return Response.json({ message: "unexpected authorization" }, { status: 401 });
+      }
+      return Response.json({
+        values: [
+          {
+            uuid: "{step-1}", name: "Build", state: { name: "COMPLETED", result: { name: "SUCCESSFUL" } },
+            started_on: "2026-05-04T12:34:56.000Z", completed_on: "2026-05-04T12:36:56.000Z", duration_in_seconds: 120
+          },
+          {
+            uuid: "{step-2}", name: null, state: { name: "COMPLETED", result: { name: "FAILED" } },
+            started_on: null, completed_on: null, duration_in_seconds: null
+          }
+        ],
+        next: "next-steps-page"
+      });
+    };
+  `);
+
+  const result = await runIre(["bitbucket", "pipelines", "steps", "list", "{pipeline-1}", "--repo", "workspace-one/repo-one"], {
+    nodeArgs: ["--import", hookPath],
+    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+  });
+  const envelope = parseJson(result.stdout);
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stderr, "");
+  assert.deepEqual(envelope.data, {
+    steps: [
+      {
+        uuid: "{step-1}", name: "Build", state: "COMPLETED", result: "SUCCESSFUL",
+        startedOn: "2026-05-04T12:34:56.000Z", completedOn: "2026-05-04T12:36:56.000Z", durationInSeconds: 120,
+      },
+      {
+        uuid: "{step-2}", name: null, state: "COMPLETED", result: "FAILED",
+        startedOn: null, completedOn: null, durationInSeconds: null,
+      },
+    ],
+    pagination: { limit: 50, nextCursor: "next-steps-page", hasNextPage: true },
+  });
+  assert.deepEqual(envelope.meta, { bitbucket: { workspace: "workspace-one", repo: "repo-one" } });
+});
+
+test("bitbucket pipelines steps list supports cursor, caps limits, and reuses Git remote repo resolution", async () => {
+  const cursor = "https://api.bitbucket.org/2.0/repositories/ws/repo/pipelines/%7Bp%7D/steps/?page=2&pagelen=25";
+  const hookPath = await writeFetchHook(`
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url === ${JSON.stringify(cursor)}) return Response.json({ values: [] });
+      if (url === "https://api.bitbucket.org/2.0/repositories/remote-workspace/remote-repo/pipelines/%7Bpipeline-remote%7D/steps/?pagelen=100") return Response.json({ values: [] });
+      return Response.json({ url }, { status: 500 });
+    };
+  `);
+
+  const cursorResult = await runIre(["bitbucket", "pipelines", "steps", "list", "{p}", "--repo", "ws/repo", "--limit", "25", "--cursor", cursor], {
+    nodeArgs: ["--import", hookPath],
+    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+  });
+  assert.equal(cursorResult.exitCode, 0);
+  assert.deepEqual(parseJson(cursorResult.stdout).data.pagination, { limit: 25, nextCursor: null, hasNextPage: false });
+
+  const remoteDir = await mkdtemp(join(tmpdir(), "ire-cli-project-"));
+  await runCommand("git", ["init"], { cwd: remoteDir });
+  await runCommand("git", ["remote", "add", "origin", "git@bitbucket.org:remote-workspace/remote-repo.git"], { cwd: remoteDir });
+  const capped = await runIre(["bitbucket", "pipelines", "steps", "list", "{pipeline-remote}", "--limit", "101"], {
+    cwd: remoteDir,
+    nodeArgs: ["--import", hookPath],
+    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+  });
+  assert.equal(capped.exitCode, 0);
+  assert.deepEqual(parseJson(capped.stdout).meta, { bitbucket: { workspace: "remote-workspace", repo: "remote-repo" } });
+  assert.deepEqual(parseJson(capped.stdout).data.pagination, { limit: 100, nextCursor: null, hasNextPage: false });
+});
+
+test("bitbucket pipelines steps list validates required UUID before network calls", async () => {
+  const hookPath = await writeFetchHook(`globalThis.fetch = async () => Response.json({ message: "should not fetch" }, { status: 500 });`);
+
+  const result = await runIre(["bitbucket", "pipelines", "steps", "list", "--repo", "ws/repo"], {
+    nodeArgs: ["--import", hookPath],
+    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+  });
+  const envelope = parseJson(result.stdout);
+
+  assert.equal(result.exitCode, 2);
+  assert.equal(result.stderr, "");
+  assert.equal(envelope.error.code, "MISSING_ARGUMENT");
+  assert.deepEqual(envelope.error.details, { argument: "UUID" });
+});
+
+test("bitbucket pipelines steps list maps not found, auth, provider, and network errors", async () => {
+  const notFoundHook = await writeFetchHook(`globalThis.fetch = async () => Response.json({ message: "missing" }, { status: 404 });`);
+  const notFound = await runIre(["bitbucket", "pipelines", "steps", "list", "{missing}", "--repo", "ws/repo"], {
+    nodeArgs: ["--import", notFoundHook],
+    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+  });
+  assert.equal(notFound.exitCode, 4);
+  assert.equal(parseJson(notFound.stdout).error.code, "BITBUCKET_PIPELINE_NOT_FOUND");
+
+  const authHook = await writeFetchHook(`globalThis.fetch = async () => Response.json({ message: "nope" }, { status: 401 });`);
+  const auth = await runIre(["bitbucket", "pipelines", "steps", "list", "{pipeline}", "--repo", "ws/repo"], {
+    nodeArgs: ["--import", authHook],
+    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+  });
+  assert.equal(auth.exitCode, 3);
+  assert.equal(parseJson(auth.stdout).error.code, "BITBUCKET_AUTH_FAILED");
+
+  const providerHook = await writeFetchHook(`globalThis.fetch = async () => Response.json({ message: "boom" }, { status: 503 });`);
+  const provider = await runIre(["bitbucket", "pipelines", "steps", "list", "{pipeline}", "--repo", "ws/repo"], {
+    nodeArgs: ["--import", providerHook],
+    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+  });
+  assert.equal(provider.exitCode, 5);
+  assert.equal(parseJson(provider.stdout).error.code, "BITBUCKET_PROVIDER_ERROR");
+
+  const networkHook = await writeFetchHook(`globalThis.fetch = async () => { throw new Error("offline"); };`);
+  const network = await runIre(["bitbucket", "pipelines", "steps", "list", "{pipeline}", "--repo", "ws/repo"], {
+    nodeArgs: ["--import", networkHook],
+    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+  });
+  assert.equal(network.exitCode, 6);
+  assert.equal(parseJson(network.stdout).error.code, "BITBUCKET_NETWORK_ERROR");
+});
+
 test("bitbucket pipelines get fetches a UUID and emits a normalized pipeline run", async () => {
   const hookPath = await writeFetchHook(`
     globalThis.fetch = async (input, init = {}) => {

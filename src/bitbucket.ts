@@ -85,6 +85,15 @@ type BitbucketPipelineGetOptions = {
   debugRequests?: BitbucketDebugRequest[];
 };
 
+type BitbucketPipelineStepsListOptions = {
+  repo?: string;
+  limit?: number;
+  cursor?: string;
+  cwd?: string;
+  fetchImpl?: Fetch;
+  debugRequests?: BitbucketDebugRequest[];
+};
+
 export class BitbucketConfigurationError extends Error {
   readonly code = "AUTH_CONFIG_INCOMPLETE";
   readonly details: { provider: "bitbucket"; missing: string[] };
@@ -271,6 +280,25 @@ const normalizedPipelineSchema = z
 const normalizedPipelineListSchema = z
   .object({
     pipelines: z.array(normalizedPipelineSchema),
+    pagination: paginationSchema,
+  })
+  .strict();
+
+const normalizedPipelineStepSchema = z
+  .object({
+    uuid: z.string(),
+    name: z.string().nullable(),
+    state: z.string(),
+    result: z.string().nullable(),
+    startedOn: z.iso.datetime().nullable(),
+    completedOn: z.iso.datetime().nullable(),
+    durationInSeconds: z.number().nullable(),
+  })
+  .strict();
+
+const normalizedPipelineStepsListSchema = z
+  .object({
+    steps: z.array(normalizedPipelineStepSchema),
     pagination: paginationSchema,
   })
   .strict();
@@ -634,6 +662,62 @@ function normalizePipelineList(providerPage: unknown, limit: number): z.infer<ty
   return parsedResult.data;
 }
 
+function normalizeNullableTimestamp(value: unknown): unknown {
+  return value === undefined || value === null ? null : normalizeTimestamp(value);
+}
+
+function normalizePipelineStep(providerStep: unknown): z.infer<typeof normalizedPipelineStepSchema> {
+  const step = asRecord(providerStep);
+  const state = asRecord(step?.state);
+  const result = asRecord(state?.result);
+  const normalized = {
+    uuid: step?.uuid,
+    name: stringField(step?.name),
+    state: state?.name,
+    result: result?.name ?? null,
+    startedOn: normalizeNullableTimestamp(step?.started_on),
+    completedOn: normalizeNullableTimestamp(step?.completed_on),
+    durationInSeconds: step?.duration_in_seconds === undefined || step.duration_in_seconds === null ? null : step.duration_in_seconds,
+  };
+
+  const parsedResult = normalizedPipelineStepSchema.safeParse(normalized);
+  if (!parsedResult.success) {
+    throw new BitbucketNormalizedOutputError(
+      parsedResult.error.issues.map((issue) => ({
+        code: issue.code,
+        message: issue.message,
+        path: issue.path.join("."),
+      })),
+      "Normalized Bitbucket pipeline step output failed validation",
+    );
+  }
+
+  return parsedResult.data;
+}
+
+function normalizePipelineStepsList(providerPage: unknown, limit: number): z.infer<typeof normalizedPipelineStepsListSchema> {
+  const page = asRecord(providerPage);
+  const values = Array.isArray(page?.values) ? page.values : [];
+  const normalized = {
+    steps: values.map(normalizePipelineStep),
+    pagination: paginationFromProvider(page, limit),
+  };
+
+  const parsedResult = normalizedPipelineStepsListSchema.safeParse(normalized);
+  if (!parsedResult.success) {
+    throw new BitbucketNormalizedOutputError(
+      parsedResult.error.issues.map((issue) => ({
+        code: issue.code,
+        message: issue.message,
+        path: issue.path.join("."),
+      })),
+      "Normalized Bitbucket pipeline steps list output failed validation",
+    );
+  }
+
+  return parsedResult.data;
+}
+
 function normalizeCommentInline(value: unknown): z.infer<typeof normalizedPullRequestCommentInlineSchema> | null {
   const inline = asRecord(value);
   if (inline === undefined) {
@@ -800,6 +884,18 @@ function pipelineUrl(repo: BitbucketRepoIdentity, uuid: string): string {
   return `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(repo.workspace)}/${encodeURIComponent(repo.repo)}/pipelines/${encodeURIComponent(uuid)}`;
 }
 
+function pipelineStepsUrl(repo: BitbucketRepoIdentity, uuid: string, limit: number, cursor?: string): string {
+  if (cursor !== undefined) {
+    return cursor;
+  }
+
+  const url = new URL(
+    `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(repo.workspace)}/${encodeURIComponent(repo.repo)}/pipelines/${encodeURIComponent(uuid)}/steps/`,
+  );
+  url.searchParams.set("pagelen", String(limit));
+  return String(url);
+}
+
 function pipelinesUrl(repo: BitbucketRepoIdentity, limit: number, branch?: string, cursor?: string): string {
   if (cursor !== undefined) {
     return cursor;
@@ -902,6 +998,34 @@ export async function getBitbucketPipeline(
       debugRequests: options.debugRequests,
     });
     return { data: normalizePipeline(body), repo };
+  } catch (error) {
+    if (error instanceof BitbucketProviderError && error.details.status === 404) {
+      throw new BitbucketPipelineNotFoundError(repo, { uuid, status: 404 });
+    }
+    throw error;
+  }
+}
+
+export async function listBitbucketPipelineSteps(
+  config: ResolvedConfig,
+  uuid: string,
+  options: BitbucketPipelineStepsListOptions = {},
+): Promise<{ data: unknown; repo: BitbucketRepoIdentity }> {
+  assertBitbucketConfigComplete(config);
+
+  const repo = resolveBitbucketRepo(config, {
+    repo: options.repo,
+    cwd: options.cwd,
+  });
+  const limit = Math.min(options.limit ?? 50, 100);
+  const url = pipelineStepsUrl(repo, uuid, limit, options.cursor);
+
+  try {
+    const body = await fetchBitbucketJson(config, url, {
+      fetchImpl: options.fetchImpl,
+      debugRequests: options.debugRequests,
+    });
+    return { data: normalizePipelineStepsList(body, limit), repo };
   } catch (error) {
     if (error instanceof BitbucketProviderError && error.details.status === 404) {
       throw new BitbucketPipelineNotFoundError(repo, { uuid, status: 404 });
