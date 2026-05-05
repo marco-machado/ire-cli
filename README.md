@@ -132,13 +132,13 @@ Available Bitbucket commands:
 
 ```text
 ire bitbucket pr get ID [--repo workspace/repo]
+ire bitbucket pr list [--repo workspace/repo]
+ire bitbucket pr comments list ID [--repo workspace/repo]
 ```
 
 Planned Bitbucket commands:
 
 ```text
-ire bitbucket pr list --repo workspace/repo
-ire bitbucket pr comments list ID --repo workspace/repo
 ire bitbucket pr diff ID --repo workspace/repo
 ire bitbucket pr files ID --repo workspace/repo
 ```
@@ -156,6 +156,8 @@ ire bitbucket pipelines log UUID STEP_UUID --repo workspace/repo
 Pipeline artifacts, reruns, and stops are out of scope for v1.
 
 Bitbucket repository identity can be provided explicitly via `--repo workspace/repo`, read from config (`bitbucket.workspace` + `bitbucket.repo`), or inferred from local Git remotes when unambiguous. Responses include the resolved workspace/repo in `meta.bitbucket`.
+
+Bitbucket PR list and PR comments list support bounded pagination with `--limit` (default 50, maximum 100) and `--cursor`. There is no fetch-all mode.
 
 ## Pagination
 

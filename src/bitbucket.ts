@@ -35,6 +35,15 @@ type BitbucketPullRequestListOptions = {
   debugRequests?: BitbucketDebugRequest[];
 };
 
+type BitbucketPullRequestCommentsListOptions = {
+  repo?: string;
+  limit?: number;
+  cursor?: string;
+  cwd?: string;
+  fetchImpl?: Fetch;
+  debugRequests?: BitbucketDebugRequest[];
+};
+
 export class BitbucketConfigurationError extends Error {
   readonly code = "AUTH_CONFIG_INCOMPLETE";
   readonly details: { provider: "bitbucket"; missing: string[] };
@@ -187,6 +196,33 @@ const paginationSchema = z
 const normalizedPullRequestListSchema = z
   .object({
     prs: z.array(normalizedPullRequestSummarySchema),
+    pagination: paginationSchema,
+  })
+  .strict();
+
+const normalizedPullRequestCommentInlineSchema = z
+  .object({
+    path: z.string(),
+    from: z.number().int().nullable(),
+    to: z.number().int().nullable(),
+  })
+  .strict();
+
+const normalizedPullRequestCommentSchema = z
+  .object({
+    id: z.number().int(),
+    author: userSchema.nullable(),
+    body: z.string(),
+    deleted: z.boolean(),
+    inline: normalizedPullRequestCommentInlineSchema.nullable(),
+    created: z.iso.datetime(),
+    updated: z.iso.datetime(),
+  })
+  .strict();
+
+const normalizedPullRequestCommentsListSchema = z
+  .object({
+    comments: z.array(normalizedPullRequestCommentSchema),
     pagination: paginationSchema,
   })
   .strict();
@@ -409,17 +445,22 @@ function normalizePullRequestSummary(providerPullRequest: unknown): z.infer<type
   } as z.infer<typeof normalizedPullRequestSummarySchema>;
 }
 
+function paginationFromProvider(page: JsonRecord | undefined, limit: number): z.infer<typeof paginationSchema> {
+  const nextCursor = typeof page?.next === "string" ? page.next : null;
+
+  return {
+    limit,
+    nextCursor,
+    hasNextPage: nextCursor !== null,
+  };
+}
+
 function normalizePullRequestList(providerPage: unknown, limit: number): z.infer<typeof normalizedPullRequestListSchema> {
   const page = asRecord(providerPage);
   const values = Array.isArray(page?.values) ? page.values : [];
-  const nextCursor = typeof page?.next === "string" ? page.next : null;
   const normalized = {
     prs: values.map(normalizePullRequestSummary),
-    pagination: {
-      limit,
-      nextCursor,
-      hasNextPage: nextCursor !== null,
-    },
+    pagination: paginationFromProvider(page, limit),
   };
 
   const parsedResult = normalizedPullRequestListSchema.safeParse(normalized);
@@ -431,6 +472,61 @@ function normalizePullRequestList(providerPage: unknown, limit: number): z.infer
         path: issue.path.join("."),
       })),
       "Normalized Bitbucket pull request list output failed validation",
+    );
+  }
+
+  return parsedResult.data;
+}
+
+function normalizeCommentInline(value: unknown): z.infer<typeof normalizedPullRequestCommentInlineSchema> | null {
+  const inline = asRecord(value);
+  if (inline === undefined) {
+    return null;
+  }
+
+  return {
+    path: inline.path,
+    from: inline.from === null ? null : inline.from,
+    to: inline.to === null ? null : inline.to,
+  } as z.infer<typeof normalizedPullRequestCommentInlineSchema>;
+}
+
+function normalizeCommentBody(value: unknown): string {
+  const content = asRecord(value);
+  return typeof content?.raw === "string" ? content.raw : "";
+}
+
+function normalizePullRequestComment(providerComment: unknown): z.infer<typeof normalizedPullRequestCommentSchema> {
+  const comment = asRecord(providerComment);
+
+  return {
+    id: comment?.id,
+    author: userField(comment?.user),
+    body: normalizeCommentBody(comment?.content),
+    deleted: comment?.deleted ?? false,
+    inline: normalizeCommentInline(comment?.inline),
+    created: normalizeTimestamp(comment?.created_on),
+    updated: normalizeTimestamp(comment?.updated_on),
+  } as z.infer<typeof normalizedPullRequestCommentSchema>;
+}
+
+function normalizePullRequestCommentsList(providerPage: unknown, limit: number): z.infer<typeof normalizedPullRequestCommentsListSchema> {
+  const page = asRecord(providerPage);
+  const values = Array.isArray(page?.values) ? page.values : [];
+  const normalized = {
+    comments: values.map(normalizePullRequestComment),
+    pagination: paginationFromProvider(page, limit),
+  };
+
+  const parsedResult = normalizedPullRequestCommentsListSchema.safeParse(normalized);
+  if (!parsedResult.success) {
+    throw new BitbucketNormalizedOutputError(
+      parsedResult.error.issues.map((issue) => ({
+        code: issue.code,
+        message: issue.message,
+        path: issue.path.join("."),
+      })),
+      "Normalized Bitbucket pull request comments output failed validation",
     );
   }
 
@@ -455,6 +551,18 @@ function pullRequestsUrl(repo: BitbucketRepoIdentity, limit: number, cursor?: st
 
   const url = new URL(
     `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(repo.workspace)}/${encodeURIComponent(repo.repo)}/pullrequests`,
+  );
+  url.searchParams.set("pagelen", String(limit));
+  return String(url);
+}
+
+function pullRequestCommentsUrl(repo: BitbucketRepoIdentity, id: number, limit: number, cursor?: string): string {
+  if (cursor !== undefined) {
+    return cursor;
+  }
+
+  const url = new URL(
+    `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(repo.workspace)}/${encodeURIComponent(repo.repo)}/pullrequests/${id}/comments`,
   );
   url.searchParams.set("pagelen", String(limit));
   return String(url);
@@ -517,6 +625,70 @@ export async function listBitbucketPullRequests(
 
   const body = await readProviderJson(response);
   return { data: normalizePullRequestList(body, limit), repo };
+}
+
+export async function listBitbucketPullRequestComments(
+  config: ResolvedConfig,
+  id: number,
+  options: BitbucketPullRequestCommentsListOptions = {},
+): Promise<{ data: unknown; repo: BitbucketRepoIdentity }> {
+  assertBitbucketConfigComplete(config);
+
+  const repo = resolveBitbucketRepo(config, {
+    repo: options.repo,
+    cwd: options.cwd,
+  });
+  const limit = options.limit ?? 50;
+  const url = pullRequestCommentsUrl(repo, id, limit, options.cursor);
+  const startedAt = Date.now();
+  const fetchImpl = options.fetchImpl ?? fetch;
+  let response: Response;
+
+  try {
+    response = await fetchImpl(url, {
+      headers: {
+        accept: "application/json",
+        authorization: basicAuthorization(
+          config.bitbucket.username.value,
+          config.bitbucket.appPassword.value,
+        ),
+      },
+    });
+  } catch {
+    options.debugRequests?.push({
+      provider: "bitbucket",
+      method: "GET",
+      url,
+      latencyMs: Date.now() - startedAt,
+    });
+    throw new BitbucketNetworkError();
+  }
+
+  options.debugRequests?.push({
+    provider: "bitbucket",
+    method: "GET",
+    url,
+    status: response.status,
+    latencyMs: Date.now() - startedAt,
+  });
+
+  if (response.status === 404) {
+    throw new BitbucketPullRequestNotFoundError(id, repo);
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    throw new BitbucketAuthenticationError(response.status);
+  }
+
+  if (!response.ok) {
+    throw new BitbucketProviderError(
+      "Bitbucket provider request failed",
+      response.status,
+    );
+  }
+
+  const body = await readProviderJson(response);
+  return { data: normalizePullRequestCommentsList(body, limit), repo };
 }
 
 export async function getBitbucketPullRequest(
