@@ -11,7 +11,7 @@ Issues and PRDs are tracked in GitHub Issues for `marco-machado/ire-cli`. See `d
 
 ### Triage labels
 
-Use the default five-label triage vocabulary. See `docs/agents/triage-labels.md`.
+Use the project triage vocabulary, including `ready-for-review` for completed work awaiting human review. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 

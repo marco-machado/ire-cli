@@ -98,6 +98,19 @@ After all tests pass, look for [refactor candidates](refactoring.md):
 
 **Never refactor while RED.** Get to GREEN first.
 
+### 5. Completion Handoff
+
+If the work is tied to an issue, update the issue record after implementation is complete:
+
+- [ ] Summarize what changed
+- [ ] Include validation commands and results
+- [ ] Use the project's issue workflow/triage skill when the issue lives in a tracker
+- [ ] Update the local issue file/record when issues are stored locally
+- [ ] Move the issue to `ready-for-review` when implementation is complete and human review is needed
+- [ ] Do not close or mark complete unless the maintainer asked for closure or the repo workflow clearly allows it
+
+Keep issue-management rules out of this skill; this is a reminder to hand off completion state to the appropriate issue system.
+
 ## Checklist Per Cycle
 
 ```
@@ -106,4 +119,5 @@ After all tests pass, look for [refactor candidates](refactoring.md):
 [ ] Test would survive internal refactor
 [ ] Code is minimal for this test
 [ ] No speculative features added
+[ ] If issue-backed, completion notes were posted to the tracker or local issue record
 ```
