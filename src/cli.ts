@@ -12,6 +12,7 @@ import {
 } from "./auth.js";
 import {
   getBitbucketPipeline,
+  getBitbucketPipelineLog,
   getBitbucketPullRequest,
   getBitbucketPullRequestDiff,
   getLatestBitbucketPipeline,
@@ -998,6 +999,63 @@ bitbucketPipelinesCommand
         data: result.data,
         meta: { ...meta, bitbucket: result.repo },
       });
+    } catch (error) {
+      if (writeBitbucketCommandError(error, meta)) return;
+      writeEnvelope({
+        success: false,
+        schemaVersion: "1.0",
+        error: { code: "INTERNAL_ERROR", message: "Unexpected internal error" },
+        meta,
+      });
+      process.exitCode = 1;
+    }
+  });
+
+bitbucketPipelinesCommand
+  .command("log")
+  .description("Fetch a Bitbucket Pipelines step log")
+  .argument("[uuid]", "Bitbucket Pipelines run UUID")
+  .argument("[stepUuid]", "Bitbucket Pipelines step UUID")
+  .option("--repo <repo>", "Bitbucket repository identity as workspace/repo")
+  .option("--debug", "Include redacted provider request metadata")
+  .option("--bitbucket-workspace <workspace>")
+  .option("--bitbucket-repo <repo>")
+  .option("--bitbucket-username <username>")
+  .option("--bitbucket-app-password <password>")
+  .action(async (uuid: string | undefined, stepUuid: string | undefined, flags) => {
+    const debugRequests: BitbucketDebugRequest[] = [];
+    const meta: Record<string, unknown> = flags.debug ? { debug: { requests: debugRequests } } : {};
+
+    try {
+      if (uuid === undefined) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: { code: "MISSING_ARGUMENT", message: "Bitbucket pipelines log requires a UUID", details: { argument: "UUID" } },
+          meta: {},
+        });
+        process.exitCode = 2;
+        return;
+      }
+
+      if (stepUuid === undefined) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: { code: "MISSING_ARGUMENT", message: "Bitbucket pipelines log requires a step UUID", details: { argument: "STEP_UUID" } },
+          meta: {},
+        });
+        process.exitCode = 2;
+        return;
+      }
+
+      const config = resolveConfig({ flags, redactSecrets: false });
+      const result = await getBitbucketPipelineLog(config, uuid, stepUuid, {
+        repo: flags.repo,
+        debugRequests: flags.debug ? debugRequests : undefined,
+      });
+
+      writeEnvelope({ success: true, schemaVersion: "1.0", data: result.data, meta: { ...meta, bitbucket: result.repo } });
     } catch (error) {
       if (writeBitbucketCommandError(error, meta)) return;
       writeEnvelope({

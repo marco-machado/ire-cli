@@ -94,6 +94,13 @@ type BitbucketPipelineStepsListOptions = {
   debugRequests?: BitbucketDebugRequest[];
 };
 
+type BitbucketPipelineLogOptions = {
+  repo?: string;
+  cwd?: string;
+  fetchImpl?: Fetch;
+  debugRequests?: BitbucketDebugRequest[];
+};
+
 export class BitbucketConfigurationError extends Error {
   readonly code = "AUTH_CONFIG_INCOMPLETE";
   readonly details: { provider: "bitbucket"; missing: string[] };
@@ -148,10 +155,10 @@ export class BitbucketPullRequestNotFoundError extends Error {
 
 export class BitbucketPipelineNotFoundError extends Error {
   readonly code = "BITBUCKET_PIPELINE_NOT_FOUND";
-  readonly details: { repo: BitbucketRepoIdentity; branch?: string | null; uuid?: string; status?: 404 };
+  readonly details: { repo: BitbucketRepoIdentity; branch?: string | null; uuid?: string; stepUuid?: string; status?: 404 };
 
-  constructor(repo: BitbucketRepoIdentity, identity?: { branch?: string | null; uuid?: string; status?: 404 }) {
-    super("No Bitbucket pipeline run was found");
+  constructor(repo: BitbucketRepoIdentity, identity?: { branch?: string | null; uuid?: string; stepUuid?: string; status?: 404 }) {
+    super("No Bitbucket pipeline resource was found");
     this.details = { repo, ...identity };
     if (identity?.branch === undefined && identity?.uuid === undefined) {
       this.details.branch = null;
@@ -300,6 +307,12 @@ const normalizedPipelineStepsListSchema = z
   .object({
     steps: z.array(normalizedPipelineStepSchema),
     pagination: paginationSchema,
+  })
+  .strict();
+
+const normalizedPipelineLogSchema = z
+  .object({
+    log: z.string(),
   })
   .strict();
 
@@ -718,6 +731,22 @@ function normalizePipelineStepsList(providerPage: unknown, limit: number): z.inf
   return parsedResult.data;
 }
 
+function normalizePipelineLog(log: string): z.infer<typeof normalizedPipelineLogSchema> {
+  const parsedResult = normalizedPipelineLogSchema.safeParse({ log });
+  if (!parsedResult.success) {
+    throw new BitbucketNormalizedOutputError(
+      parsedResult.error.issues.map((issue) => ({
+        code: issue.code,
+        message: issue.message,
+        path: issue.path.join("."),
+      })),
+      "Normalized Bitbucket pipeline log output failed validation",
+    );
+  }
+
+  return parsedResult.data;
+}
+
 function normalizeCommentInline(value: unknown): z.infer<typeof normalizedPullRequestCommentInlineSchema> | null {
   const inline = asRecord(value);
   if (inline === undefined) {
@@ -896,6 +925,10 @@ function pipelineStepsUrl(repo: BitbucketRepoIdentity, uuid: string, limit: numb
   return String(url);
 }
 
+function pipelineLogUrl(repo: BitbucketRepoIdentity, pipelineUuid: string, stepUuid: string): string {
+  return `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(repo.workspace)}/${encodeURIComponent(repo.repo)}/pipelines/${encodeURIComponent(pipelineUuid)}/steps/${encodeURIComponent(stepUuid)}/log`;
+}
+
 function pipelinesUrl(repo: BitbucketRepoIdentity, limit: number, branch?: string, cursor?: string): string {
   if (cursor !== undefined) {
     return cursor;
@@ -909,6 +942,43 @@ function pipelinesUrl(repo: BitbucketRepoIdentity, limit: number, branch?: strin
     url.searchParams.set("target.ref_name", branch);
   }
   return String(url);
+}
+
+async function fetchBitbucketText(
+  config: ResolvedConfig & { bitbucket: { username: { value: string }; appPassword: { value: string } } },
+  url: string,
+  options: { fetchImpl?: Fetch; debugRequests?: BitbucketDebugRequest[] } = {},
+): Promise<string> {
+  const startedAt = Date.now();
+  const fetchImpl = options.fetchImpl ?? fetch;
+  let response: Response;
+
+  try {
+    response = await fetchImpl(url, {
+      headers: {
+        accept: "text/plain",
+        authorization: basicAuthorization(
+          config.bitbucket.username.value,
+          config.bitbucket.appPassword.value,
+        ),
+      },
+    });
+  } catch {
+    options.debugRequests?.push({ provider: "bitbucket", method: "GET", url, latencyMs: Date.now() - startedAt });
+    throw new BitbucketNetworkError();
+  }
+
+  options.debugRequests?.push({ provider: "bitbucket", method: "GET", url, status: response.status, latencyMs: Date.now() - startedAt });
+
+  if (response.status === 401 || response.status === 403) {
+    throw new BitbucketAuthenticationError(response.status);
+  }
+
+  if (!response.ok) {
+    throw new BitbucketProviderError("Bitbucket provider request failed", response.status);
+  }
+
+  return response.text();
 }
 
 async function fetchBitbucketJson(
@@ -1001,6 +1071,34 @@ export async function getBitbucketPipeline(
   } catch (error) {
     if (error instanceof BitbucketProviderError && error.details.status === 404) {
       throw new BitbucketPipelineNotFoundError(repo, { uuid, status: 404 });
+    }
+    throw error;
+  }
+}
+
+export async function getBitbucketPipelineLog(
+  config: ResolvedConfig,
+  pipelineUuid: string,
+  stepUuid: string,
+  options: BitbucketPipelineLogOptions = {},
+): Promise<{ data: unknown; repo: BitbucketRepoIdentity }> {
+  assertBitbucketConfigComplete(config);
+
+  const repo = resolveBitbucketRepo(config, {
+    repo: options.repo,
+    cwd: options.cwd,
+  });
+  const url = pipelineLogUrl(repo, pipelineUuid, stepUuid);
+
+  try {
+    const log = await fetchBitbucketText(config, url, {
+      fetchImpl: options.fetchImpl,
+      debugRequests: options.debugRequests,
+    });
+    return { data: normalizePipelineLog(log), repo };
+  } catch (error) {
+    if (error instanceof BitbucketProviderError && error.details.status === 404) {
+      throw new BitbucketPipelineNotFoundError(repo, { uuid: pipelineUuid, stepUuid, status: 404 });
     }
     throw error;
   }
