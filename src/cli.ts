@@ -13,6 +13,7 @@ import {
 import {
   getBitbucketPullRequest,
   listBitbucketPullRequestComments,
+  listBitbucketPullRequestFiles,
   listBitbucketPullRequests,
   BitbucketAuthenticationError,
   BitbucketConfigurationError,
@@ -1044,6 +1045,218 @@ bitbucketPrCommentsCommand
 
       const config = resolveConfig({ flags, redactSecrets: false });
       const result = await listBitbucketPullRequestComments(config, pullRequestId, {
+        repo: flags.repo,
+        limit,
+        cursor: flags.cursor,
+        debugRequests: flags.debug ? debugRequests : undefined,
+      });
+      const successMeta = {
+        ...meta,
+        bitbucket: result.repo,
+      };
+
+      writeEnvelope({
+        success: true,
+        schemaVersion: "1.0",
+        data: result.data,
+        meta: successMeta,
+      });
+    } catch (error) {
+      if (
+        error instanceof BitbucketConfigurationError ||
+        error instanceof BitbucketRepoMissingError ||
+        error instanceof BitbucketRepoInvalidError ||
+        error instanceof ConfigValidationError
+      ) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+          },
+          meta,
+        });
+        process.exitCode = 2;
+        return;
+      }
+
+      if (error instanceof BitbucketRepoAmbiguousError) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+          },
+          meta,
+        });
+        process.exitCode = 7;
+        return;
+      }
+
+      if (error instanceof BitbucketAuthenticationError) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+          },
+          meta,
+        });
+        process.exitCode = 3;
+        return;
+      }
+
+      if (error instanceof BitbucketPullRequestNotFoundError) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+          },
+          meta,
+        });
+        process.exitCode = 4;
+        return;
+      }
+
+      if (error instanceof BitbucketProviderError) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+          },
+          meta,
+        });
+        process.exitCode = 5;
+        return;
+      }
+
+      if (error instanceof BitbucketNetworkError) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: error.code,
+            message: error.message,
+          },
+          meta,
+        });
+        process.exitCode = 6;
+        return;
+      }
+
+      if (error instanceof BitbucketNormalizedOutputError) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+          },
+          meta,
+        });
+        process.exitCode = 1;
+        return;
+      }
+
+      writeEnvelope({
+        success: false,
+        schemaVersion: "1.0",
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Unexpected internal error",
+        },
+        meta,
+      });
+      process.exitCode = 1;
+    }
+  });
+
+bitbucketPrCommand
+  .command("files")
+  .description("List files changed in a Bitbucket pull request")
+  .argument("[id]", "Bitbucket pull request ID")
+  .option("--repo <repo>", "Bitbucket repository identity as workspace/repo")
+  .option("--limit <limit>")
+  .option("--cursor <cursor>")
+  .option("--debug", "Include redacted provider request metadata")
+  .option("--bitbucket-workspace <workspace>")
+  .option("--bitbucket-repo <repo>")
+  .option("--bitbucket-username <username>")
+  .option("--bitbucket-app-password <password>")
+  .action(async (id: string | undefined, flags) => {
+    const debugRequests: BitbucketDebugRequest[] = [];
+    const meta: Record<string, unknown> = flags.debug
+      ? { debug: { requests: debugRequests } }
+      : {};
+
+    try {
+      if (id === undefined) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: "MISSING_ARGUMENT",
+            message: "Bitbucket pull request ID is required",
+            details: { argument: "ID" },
+          },
+          meta: {},
+        });
+        process.exitCode = 2;
+        return;
+      }
+
+      const pullRequestId = Number(id);
+      if (!Number.isInteger(pullRequestId) || pullRequestId < 1) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: "INVALID_ARGUMENT",
+            message: "Bitbucket pull request ID must be a positive integer",
+            details: { argument: "ID", value: id },
+          },
+          meta: {},
+        });
+        process.exitCode = 2;
+        return;
+      }
+
+      const limit = flags.limit === undefined ? 50 : Number(flags.limit);
+
+      if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: "INVALID_LIMIT",
+            message: "Bitbucket pull request files limit must be between 1 and 100",
+            details: {
+              limit: Number.isNaN(limit) ? flags.limit : limit,
+              min: 1,
+              max: 100,
+            },
+          },
+          meta: {},
+        });
+        process.exitCode = 2;
+        return;
+      }
+
+      const config = resolveConfig({ flags, redactSecrets: false });
+      const result = await listBitbucketPullRequestFiles(config, pullRequestId, {
         repo: flags.repo,
         limit,
         cursor: flags.cursor,

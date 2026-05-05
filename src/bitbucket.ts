@@ -44,6 +44,15 @@ type BitbucketPullRequestCommentsListOptions = {
   debugRequests?: BitbucketDebugRequest[];
 };
 
+type BitbucketPullRequestFilesOptions = {
+  repo?: string;
+  limit?: number;
+  cursor?: string;
+  cwd?: string;
+  fetchImpl?: Fetch;
+  debugRequests?: BitbucketDebugRequest[];
+};
+
 export class BitbucketConfigurationError extends Error {
   readonly code = "AUTH_CONFIG_INCOMPLETE";
   readonly details: { provider: "bitbucket"; missing: string[] };
@@ -223,6 +232,21 @@ const normalizedPullRequestCommentSchema = z
 const normalizedPullRequestCommentsListSchema = z
   .object({
     comments: z.array(normalizedPullRequestCommentSchema),
+    pagination: paginationSchema,
+  })
+  .strict();
+
+const normalizedPullRequestFileSchema = z
+  .object({
+    path: z.string(),
+    previousPath: z.string().nullable(),
+    status: z.enum(["added", "removed", "modified", "renamed"]),
+  })
+  .strict();
+
+const normalizedPullRequestFilesSchema = z
+  .object({
+    files: z.array(normalizedPullRequestFileSchema),
     pagination: paginationSchema,
   })
   .strict();
@@ -533,6 +557,46 @@ function normalizePullRequestCommentsList(providerPage: unknown, limit: number):
   return parsedResult.data;
 }
 
+function filePath(value: unknown): string | undefined {
+  const file = asRecord(value);
+  return typeof file?.path === "string" ? file.path : undefined;
+}
+
+function normalizePullRequestFile(providerFile: unknown): z.infer<typeof normalizedPullRequestFileSchema> {
+  const diffstat = asRecord(providerFile);
+  const oldPath = filePath(diffstat?.old);
+  const newPath = filePath(diffstat?.new);
+
+  return {
+    path: newPath ?? oldPath,
+    previousPath: newPath !== undefined && oldPath !== undefined && oldPath !== newPath ? oldPath : null,
+    status: diffstat?.status,
+  } as z.infer<typeof normalizedPullRequestFileSchema>;
+}
+
+function normalizePullRequestFiles(providerPage: unknown, limit: number): z.infer<typeof normalizedPullRequestFilesSchema> {
+  const page = asRecord(providerPage);
+  const values = Array.isArray(page?.values) ? page.values : [];
+  const normalized = {
+    files: values.map(normalizePullRequestFile),
+    pagination: paginationFromProvider(page, limit),
+  };
+
+  const parsedResult = normalizedPullRequestFilesSchema.safeParse(normalized);
+  if (!parsedResult.success) {
+    throw new BitbucketNormalizedOutputError(
+      parsedResult.error.issues.map((issue) => ({
+        code: issue.code,
+        message: issue.message,
+        path: issue.path.join("."),
+      })),
+      "Normalized Bitbucket pull request files output failed validation",
+    );
+  }
+
+  return parsedResult.data;
+}
+
 async function readProviderJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
@@ -563,6 +627,18 @@ function pullRequestCommentsUrl(repo: BitbucketRepoIdentity, id: number, limit: 
 
   const url = new URL(
     `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(repo.workspace)}/${encodeURIComponent(repo.repo)}/pullrequests/${id}/comments`,
+  );
+  url.searchParams.set("pagelen", String(limit));
+  return String(url);
+}
+
+function pullRequestFilesUrl(repo: BitbucketRepoIdentity, id: number, limit: number, cursor?: string): string {
+  if (cursor !== undefined) {
+    return cursor;
+  }
+
+  const url = new URL(
+    `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(repo.workspace)}/${encodeURIComponent(repo.repo)}/pullrequests/${id}/diffstat`,
   );
   url.searchParams.set("pagelen", String(limit));
   return String(url);
@@ -689,6 +765,70 @@ export async function listBitbucketPullRequestComments(
 
   const body = await readProviderJson(response);
   return { data: normalizePullRequestCommentsList(body, limit), repo };
+}
+
+export async function listBitbucketPullRequestFiles(
+  config: ResolvedConfig,
+  id: number,
+  options: BitbucketPullRequestFilesOptions = {},
+): Promise<{ data: unknown; repo: BitbucketRepoIdentity }> {
+  assertBitbucketConfigComplete(config);
+
+  const repo = resolveBitbucketRepo(config, {
+    repo: options.repo,
+    cwd: options.cwd,
+  });
+  const limit = options.limit ?? 50;
+  const url = pullRequestFilesUrl(repo, id, limit, options.cursor);
+  const startedAt = Date.now();
+  const fetchImpl = options.fetchImpl ?? fetch;
+  let response: Response;
+
+  try {
+    response = await fetchImpl(url, {
+      headers: {
+        accept: "application/json",
+        authorization: basicAuthorization(
+          config.bitbucket.username.value,
+          config.bitbucket.appPassword.value,
+        ),
+      },
+    });
+  } catch {
+    options.debugRequests?.push({
+      provider: "bitbucket",
+      method: "GET",
+      url,
+      latencyMs: Date.now() - startedAt,
+    });
+    throw new BitbucketNetworkError();
+  }
+
+  options.debugRequests?.push({
+    provider: "bitbucket",
+    method: "GET",
+    url,
+    status: response.status,
+    latencyMs: Date.now() - startedAt,
+  });
+
+  if (response.status === 404) {
+    throw new BitbucketPullRequestNotFoundError(id, repo);
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    throw new BitbucketAuthenticationError(response.status);
+  }
+
+  if (!response.ok) {
+    throw new BitbucketProviderError(
+      "Bitbucket provider request failed",
+      response.status,
+    );
+  }
+
+  const body = await readProviderJson(response);
+  return { data: normalizePullRequestFiles(body, limit), repo };
 }
 
 export async function getBitbucketPullRequest(
