@@ -1,6 +1,7 @@
 ## Repository Guidelines
 
 - Use Conventional Commits format
+- Use `AskUserQuestion` tool if available
 
 ## Agent skills
 

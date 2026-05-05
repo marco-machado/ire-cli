@@ -93,11 +93,13 @@ Example project config:
 {
   "jira": {
     "baseUrl": "https://example.atlassian.net",
-    "defaultProject": "ABC"
+    "email": "agent@example.com",
+    "apiToken": "use-env-for-secrets-when-possible"
   },
   "bitbucket": {
     "workspace": "example-workspace",
-    "defaultRepo": "api-service"
+    "username": "agent@example.com",
+    "appPassword": "use-env-for-secrets-when-possible"
   }
 }
 ```
