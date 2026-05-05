@@ -78,6 +78,13 @@ type BitbucketPipelineLatestOptions = {
   debugRequests?: BitbucketDebugRequest[];
 };
 
+type BitbucketPipelineGetOptions = {
+  repo?: string;
+  cwd?: string;
+  fetchImpl?: Fetch;
+  debugRequests?: BitbucketDebugRequest[];
+};
+
 export class BitbucketConfigurationError extends Error {
   readonly code = "AUTH_CONFIG_INCOMPLETE";
   readonly details: { provider: "bitbucket"; missing: string[] };
@@ -132,11 +139,14 @@ export class BitbucketPullRequestNotFoundError extends Error {
 
 export class BitbucketPipelineNotFoundError extends Error {
   readonly code = "BITBUCKET_PIPELINE_NOT_FOUND";
-  readonly details: { repo: BitbucketRepoIdentity; branch: string | null };
+  readonly details: { repo: BitbucketRepoIdentity; branch?: string | null; uuid?: string; status?: 404 };
 
-  constructor(repo: BitbucketRepoIdentity, branch?: string) {
+  constructor(repo: BitbucketRepoIdentity, identity?: { branch?: string | null; uuid?: string; status?: 404 }) {
     super("No Bitbucket pipeline run was found");
-    this.details = { repo, branch: branch ?? null };
+    this.details = { repo, ...identity };
+    if (identity?.branch === undefined && identity?.uuid === undefined) {
+      this.details.branch = null;
+    }
   }
 }
 
@@ -786,6 +796,10 @@ function pullRequestDiffUrl(repo: BitbucketRepoIdentity, id: number): string {
   return `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(repo.workspace)}/${encodeURIComponent(repo.repo)}/pullrequests/${id}/diff`;
 }
 
+function pipelineUrl(repo: BitbucketRepoIdentity, uuid: string): string {
+  return `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(repo.workspace)}/${encodeURIComponent(repo.repo)}/pipelines/${encodeURIComponent(uuid)}`;
+}
+
 function pipelinesUrl(repo: BitbucketRepoIdentity, limit: number, branch?: string, cursor?: string): string {
   if (cursor !== undefined) {
     return cursor;
@@ -869,6 +883,33 @@ export async function listBitbucketPipelines(
   return { data: normalizePipelineList(body, limit), repo };
 }
 
+export async function getBitbucketPipeline(
+  config: ResolvedConfig,
+  uuid: string,
+  options: BitbucketPipelineGetOptions = {},
+): Promise<{ data: unknown; repo: BitbucketRepoIdentity }> {
+  assertBitbucketConfigComplete(config);
+
+  const repo = resolveBitbucketRepo(config, {
+    repo: options.repo,
+    cwd: options.cwd,
+  });
+  const url = pipelineUrl(repo, uuid);
+
+  try {
+    const body = await fetchBitbucketJson(config, url, {
+      fetchImpl: options.fetchImpl,
+      debugRequests: options.debugRequests,
+    });
+    return { data: normalizePipeline(body), repo };
+  } catch (error) {
+    if (error instanceof BitbucketProviderError && error.details.status === 404) {
+      throw new BitbucketPipelineNotFoundError(repo, { uuid, status: 404 });
+    }
+    throw error;
+  }
+}
+
 export async function getLatestBitbucketPipeline(
   config: ResolvedConfig,
   options: BitbucketPipelineLatestOptions = {},
@@ -888,7 +929,7 @@ export async function getLatestBitbucketPipeline(
   const values = Array.isArray(page?.values) ? page.values : [];
 
   if (values.length === 0) {
-    throw new BitbucketPipelineNotFoundError(repo, options.branch);
+    throw new BitbucketPipelineNotFoundError(repo, { branch: options.branch ?? null });
   }
 
   return { data: normalizePipeline(values[0]), repo };

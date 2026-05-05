@@ -11,6 +11,7 @@ import {
   type ProviderName,
 } from "./auth.js";
 import {
+  getBitbucketPipeline,
   getBitbucketPullRequest,
   getBitbucketPullRequestDiff,
   getLatestBitbucketPipeline,
@@ -893,6 +894,60 @@ const bitbucketCommand = program
 const bitbucketPipelinesCommand = bitbucketCommand
   .command("pipelines")
   .description("Read Bitbucket Pipelines runs");
+
+bitbucketPipelinesCommand
+  .command("get")
+  .description("Fetch a specific Bitbucket Pipelines run for a repository")
+  .argument("[uuid]", "Bitbucket Pipelines run UUID")
+  .option("--repo <repo>", "Bitbucket repository identity as workspace/repo")
+  .option("--debug", "Include redacted provider request metadata")
+  .option("--bitbucket-workspace <workspace>")
+  .option("--bitbucket-repo <repo>")
+  .option("--bitbucket-username <username>")
+  .option("--bitbucket-app-password <password>")
+  .action(async (uuid: string, flags) => {
+    const debugRequests: BitbucketDebugRequest[] = [];
+    const meta: Record<string, unknown> = flags.debug ? { debug: { requests: debugRequests } } : {};
+
+    try {
+      if (uuid === undefined) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: "MISSING_ARGUMENT",
+            message: "Bitbucket pipelines get requires a UUID",
+            details: { argument: "UUID" },
+          },
+          meta: {},
+        });
+        process.exitCode = 2;
+        return;
+      }
+
+      const config = resolveConfig({ flags, redactSecrets: false });
+      const result = await getBitbucketPipeline(config, uuid, {
+        repo: flags.repo,
+        debugRequests: flags.debug ? debugRequests : undefined,
+      });
+
+      writeEnvelope({
+        success: true,
+        schemaVersion: "1.0",
+        data: result.data,
+        meta: { ...meta, bitbucket: result.repo },
+      });
+    } catch (error) {
+      if (writeBitbucketCommandError(error, meta)) return;
+      writeEnvelope({
+        success: false,
+        schemaVersion: "1.0",
+        error: { code: "INTERNAL_ERROR", message: "Unexpected internal error" },
+        meta,
+      });
+      process.exitCode = 1;
+    }
+  });
 
 bitbucketPipelinesCommand
   .command("list")
