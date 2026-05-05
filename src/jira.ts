@@ -27,6 +27,14 @@ type JiraIssueSearchOptions = {
   debugRequests?: JiraDebugRequest[];
 };
 
+type JiraIssueCommentsListOptions = {
+  limit?: number;
+  cursor?: string;
+  raw?: boolean;
+  fetchImpl?: Fetch;
+  debugRequests?: JiraDebugRequest[];
+};
+
 export class JiraConfigurationError extends Error {
   readonly code = "AUTH_CONFIG_INCOMPLETE";
   readonly details: {
@@ -140,16 +148,35 @@ const normalizedJiraIssueSummarySchema = z
   })
   .strict();
 
+const paginationSchema = z
+  .object({
+    limit: z.number().int().min(1).max(100),
+    nextCursor: z.string().nullable(),
+    hasNextPage: z.boolean(),
+  })
+  .strict();
+
 const normalizedJiraIssueSearchSchema = z
   .object({
     issues: z.array(normalizedJiraIssueSummarySchema),
-    pagination: z
-      .object({
-        limit: z.number().int().min(1).max(100),
-        nextCursor: z.string().nullable(),
-        hasNextPage: z.boolean(),
-      })
-      .strict(),
+    pagination: paginationSchema,
+  })
+  .strict();
+
+const normalizedJiraCommentSchema = z
+  .object({
+    id: z.string(),
+    author: userSchema.nullable(),
+    body: z.string(),
+    created: z.iso.datetime(),
+    updated: z.iso.datetime(),
+  })
+  .strict();
+
+const normalizedJiraIssueCommentsListSchema = z
+  .object({
+    comments: z.array(normalizedJiraCommentSchema),
+    pagination: paginationSchema,
   })
   .strict();
 
@@ -157,6 +184,7 @@ export type NormalizedJiraIssue = z.infer<typeof normalizedJiraIssueSchema>;
 export type NormalizedJiraIssueSummary = z.infer<
   typeof normalizedJiraIssueSummarySchema
 >;
+export type NormalizedJiraComment = z.infer<typeof normalizedJiraCommentSchema>;
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, "");
@@ -370,23 +398,31 @@ function normalizeJiraIssue(providerIssue: unknown): NormalizedJiraIssue {
   return parsedResult.data;
 }
 
+function paginationFromProvider(
+  providerPage: JsonRecord | undefined,
+  limit: number,
+): z.infer<typeof paginationSchema> {
+  const startAt = typeof providerPage?.startAt === "number" ? providerPage.startAt : 0;
+  const total = typeof providerPage?.total === "number" ? providerPage.total : 0;
+  const nextStartAt = startAt + limit;
+  const hasNextPage = nextStartAt < total;
+
+  return {
+    limit,
+    nextCursor: hasNextPage ? String(nextStartAt) : null,
+    hasNextPage,
+  };
+}
+
 function normalizeJiraIssueSearch(
   providerSearch: unknown,
   limit: number,
 ): z.infer<typeof normalizedJiraIssueSearchSchema> {
   const search = asRecord(providerSearch);
-  const startAt = typeof search?.startAt === "number" ? search.startAt : 0;
-  const total = typeof search?.total === "number" ? search.total : 0;
   const issues = Array.isArray(search?.issues) ? search.issues : [];
-  const nextStartAt = startAt + limit;
-  const hasNextPage = nextStartAt < total;
   const normalized = {
     issues: issues.map(normalizeJiraIssueSummary),
-    pagination: {
-      limit,
-      nextCursor: hasNextPage ? String(nextStartAt) : null,
-      hasNextPage,
-    },
+    pagination: paginationFromProvider(search, limit),
   };
   const parsedResult = normalizedJiraIssueSearchSchema.safeParse(normalized);
 
@@ -398,6 +434,48 @@ function normalizeJiraIssueSearch(
         path: issue.path.join("."),
       })),
       "Normalized Jira issue search output failed validation",
+    );
+  }
+
+  return parsedResult.data;
+}
+
+function normalizeJiraComment(providerComment: unknown): Record<string, unknown> {
+  const comment = asRecord(providerComment);
+  const normalized: Record<string, unknown> = {
+    id: comment?.id,
+    author: userField(comment?.author) ?? null,
+    body:
+      typeof comment?.body === "string"
+        ? comment.body
+        : (adfToPlainText(comment?.body) ?? ""),
+    created: normalizeTimestamp(comment?.created),
+    updated: normalizeTimestamp(comment?.updated),
+  };
+
+  return normalized;
+}
+
+function normalizeJiraIssueCommentsList(
+  providerComments: unknown,
+  limit: number,
+): z.infer<typeof normalizedJiraIssueCommentsListSchema> {
+  const page = asRecord(providerComments);
+  const comments = Array.isArray(page?.comments) ? page.comments : [];
+  const normalized = {
+    comments: comments.map(normalizeJiraComment),
+    pagination: paginationFromProvider(page, limit),
+  };
+  const parsedResult = normalizedJiraIssueCommentsListSchema.safeParse(normalized);
+
+  if (!parsedResult.success) {
+    throw new JiraNormalizedOutputError(
+      parsedResult.error.issues.map((issue) => ({
+        code: issue.code,
+        message: issue.message,
+        path: issue.path.join("."),
+      })),
+      "Normalized Jira issue comments output failed validation",
     );
   }
 
@@ -472,6 +550,77 @@ export async function searchJiraIssues(
 
   const body = await readProviderJson(response);
   return normalizeJiraIssueSearch(body, limit);
+}
+
+export async function listJiraIssueComments(
+  config: ResolvedConfig,
+  key: string,
+  options: JiraIssueCommentsListOptions = {},
+): Promise<unknown> {
+  assertJiraConfigComplete(config);
+
+  const limit = options.limit ?? 50;
+  const startAt = options.cursor ?? "0";
+  const url = new URL(
+    `${normalizeBaseUrl(config.jira.baseUrl.value)}/rest/api/3/issue/${encodeURIComponent(key)}/comment`,
+  );
+  url.searchParams.set("maxResults", String(limit));
+  url.searchParams.set("startAt", startAt);
+
+  const startedAt = Date.now();
+  const fetchImpl = options.fetchImpl ?? fetch;
+  let response: Response;
+
+  try {
+    response = await fetchImpl(String(url), {
+      headers: {
+        accept: "application/json",
+        authorization: basicAuthorization(
+          config.jira.email.value,
+          config.jira.apiToken.value,
+        ),
+      },
+    });
+  } catch {
+    options.debugRequests?.push({
+      provider: "jira",
+      method: "GET",
+      url: String(url),
+      latencyMs: Date.now() - startedAt,
+    });
+    throw new JiraNetworkError();
+  }
+
+  options.debugRequests?.push({
+    provider: "jira",
+    method: "GET",
+    url: String(url),
+    status: response.status,
+    latencyMs: Date.now() - startedAt,
+  });
+
+  if (response.status === 404) {
+    throw new JiraIssueNotFoundError(key);
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    throw new JiraAuthenticationError(response.status);
+  }
+
+  if (!response.ok) {
+    throw new JiraProviderError(
+      "Jira provider request failed",
+      response.status,
+    );
+  }
+
+  const body = await readProviderJson(response);
+
+  if (options.raw) {
+    return body;
+  }
+
+  return normalizeJiraIssueCommentsList(body, limit);
 }
 
 export async function getJiraIssue(
