@@ -25,6 +25,21 @@ function writeEnvelope(envelope: SuccessEnvelope | ErrorEnvelope): void {
   process.stdout.write(`${JSON.stringify(envelope, null, 2)}\n`);
 }
 
+
+function writeNotImplemented(command: string): void {
+  writeEnvelope({
+    success: false,
+    schemaVersion: "1.0",
+    error: {
+      code: "NOT_IMPLEMENTED",
+      message: `${command} is not implemented yet`,
+      details: { command },
+    },
+    meta: {},
+  });
+  process.exitCode = 2;
+}
+
 const program = new Command();
 
 program
@@ -80,6 +95,16 @@ program
       });
       process.exitCode = 1;
     }
+  });
+
+
+program
+  .command("auth")
+  .description("Validate provider authentication")
+  .command("check")
+  .description("Check authentication for all configured providers")
+  .action(() => {
+    writeNotImplemented("auth check");
   });
 
 program.parseAsync(process.argv);
