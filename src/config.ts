@@ -28,6 +28,7 @@ export type ConfigFlags = {
   jiraEmail?: string;
   jiraApiToken?: string;
   bitbucketWorkspace?: string;
+  bitbucketRepo?: string;
   bitbucketUsername?: string;
   bitbucketAppPassword?: string;
 };
@@ -37,6 +38,7 @@ type ResolveConfigOptions = {
   env?: NodeJS.ProcessEnv;
   flags?: ConfigFlags;
   homeDir?: string;
+  redactSecrets?: boolean;
 };
 
 export class ConfigValidationError extends Error {
@@ -61,6 +63,7 @@ export type ResolvedConfig = {
   };
   bitbucket: {
     workspace: ResolvedField;
+    repo: ResolvedField;
     username: ResolvedField;
     appPassword: ResolvedField;
   };
@@ -81,6 +84,7 @@ const fields = {
   },
   bitbucket: {
     workspace: { envVar: "IRE_BITBUCKET_WORKSPACE", secret: false },
+    repo: { envVar: "IRE_BITBUCKET_REPO", secret: false },
     username: { envVar: "IRE_BITBUCKET_USERNAME", secret: false },
     appPassword: { envVar: "IRE_BITBUCKET_APP_PASSWORD", secret: true },
   },
@@ -101,6 +105,7 @@ const configFileSchema = z
     bitbucket: z
       .object({
         workspace: nullableString,
+        repo: nullableString,
         username: nullableString,
         appPassword: nullableString,
       })
@@ -114,54 +119,69 @@ type ConfigFile = z.infer<typeof configFileSchema>;
 function visibleValue(
   definition: FieldDefinition,
   value: string | null,
+  redactSecrets: boolean,
 ): string | null {
   if (value === null) {
     return null;
   }
 
-  return definition.secret ? redactedSecret : value;
+  return definition.secret && redactSecrets ? redactedSecret : value;
 }
 
 function applySource(
   config: ResolvedConfig,
   values: RawConfigValues,
   source: ConfigSource,
+  redactSecrets: boolean,
 ): void {
   config.jira.baseUrl = resolveSourceField(
     fields.jira.baseUrl,
     values[fields.jira.baseUrl.envVar],
     source,
     config.jira.baseUrl,
+    redactSecrets,
   );
   config.jira.email = resolveSourceField(
     fields.jira.email,
     values[fields.jira.email.envVar],
     source,
     config.jira.email,
+    redactSecrets,
   );
   config.jira.apiToken = resolveSourceField(
     fields.jira.apiToken,
     values[fields.jira.apiToken.envVar],
     source,
     config.jira.apiToken,
+    redactSecrets,
   );
   config.bitbucket.workspace = resolveSourceField(
     fields.bitbucket.workspace,
     values[fields.bitbucket.workspace.envVar],
     source,
     config.bitbucket.workspace,
+    redactSecrets,
+  );
+  config.bitbucket.repo = resolveSourceField(
+    fields.bitbucket.repo,
+    values[fields.bitbucket.repo.envVar],
+    source,
+    config.bitbucket.repo,
+    redactSecrets,
   );
   config.bitbucket.username = resolveSourceField(
     fields.bitbucket.username,
     values[fields.bitbucket.username.envVar],
     source,
     config.bitbucket.username,
+    redactSecrets,
   );
   config.bitbucket.appPassword = resolveSourceField(
     fields.bitbucket.appPassword,
     values[fields.bitbucket.appPassword.envVar],
     source,
     config.bitbucket.appPassword,
+    redactSecrets,
   );
 }
 
@@ -170,13 +190,14 @@ function resolveSourceField(
   value: string | null | undefined,
   source: ConfigSource,
   current: ResolvedField,
+  redactSecrets: boolean,
 ): ResolvedField {
   if (value === undefined) {
     return current;
   }
 
   return {
-    value: visibleValue(definition, value),
+    value: visibleValue(definition, value, redactSecrets),
     source,
   };
 }
@@ -288,6 +309,7 @@ function configFileToValues(config: ConfigFile): RawConfigValues {
     [fields.jira.email.envVar]: config.jira?.email,
     [fields.jira.apiToken.envVar]: config.jira?.apiToken,
     [fields.bitbucket.workspace.envVar]: config.bitbucket?.workspace,
+    [fields.bitbucket.repo.envVar]: config.bitbucket?.repo,
     [fields.bitbucket.username.envVar]: config.bitbucket?.username,
     [fields.bitbucket.appPassword.envVar]: config.bitbucket?.appPassword,
   };
@@ -299,6 +321,7 @@ function flagsToValues(flags: ConfigFlags): RawConfigValues {
     [fields.jira.email.envVar]: flags.jiraEmail,
     [fields.jira.apiToken.envVar]: flags.jiraApiToken,
     [fields.bitbucket.workspace.envVar]: flags.bitbucketWorkspace,
+    [fields.bitbucket.repo.envVar]: flags.bitbucketRepo,
     [fields.bitbucket.username.envVar]: flags.bitbucketUsername,
     [fields.bitbucket.appPassword.envVar]: flags.bitbucketAppPassword,
   };
@@ -309,6 +332,7 @@ export function resolveConfig(options: ResolveConfigOptions = {}): ResolvedConfi
   const env = options.env ?? process.env;
   const flags = options.flags ?? {};
   const projectRoot = findProjectRoot(cwd);
+  const redactSecrets = options.redactSecrets ?? true;
   const config = {
     jira: {
       baseUrl: defaultField(),
@@ -317,6 +341,7 @@ export function resolveConfig(options: ResolveConfigOptions = {}): ResolvedConfi
     },
     bitbucket: {
       workspace: defaultField(),
+      repo: defaultField(),
       username: defaultField(),
       appPassword: defaultField(),
     },
@@ -329,15 +354,17 @@ export function resolveConfig(options: ResolveConfigOptions = {}): ResolvedConfi
       "user config",
     ),
     "user-config",
+    redactSecrets,
   );
   applySource(
     config,
     readConfigFile(join(projectRoot, ".ire", "config.json"), "project config"),
     "project-config",
+    redactSecrets,
   );
-  applySource(config, readProjectEnv(cwd), "project-env");
-  applySource(config, env, "env");
-  applySource(config, flagsToValues(flags), "flag");
+  applySource(config, readProjectEnv(cwd), "project-env", redactSecrets);
+  applySource(config, env, "env", redactSecrets);
+  applySource(config, flagsToValues(flags), "flag", redactSecrets);
 
   return config;
 }
