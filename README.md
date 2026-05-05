@@ -269,6 +269,3 @@ npm test
 npm run build
 ```
 
-## Runtime
-
-`ire-cli` targets Node.js `>=22`, ESM, TypeScript, Commander, built-in `fetch`/Undici, and Zod for boundary validation.
