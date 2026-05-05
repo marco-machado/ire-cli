@@ -13,6 +13,8 @@ import {
 import {
   getBitbucketPullRequest,
   getBitbucketPullRequestDiff,
+  getLatestBitbucketPipeline,
+  listBitbucketPipelines,
   listBitbucketPullRequestComments,
   listBitbucketPullRequestFiles,
   listBitbucketPullRequests,
@@ -22,6 +24,7 @@ import {
   BitbucketNetworkError,
   BitbucketNormalizedOutputError,
   BitbucketProviderError,
+  BitbucketPipelineNotFoundError,
   BitbucketPullRequestNotFoundError,
   BitbucketRepoAmbiguousError,
   BitbucketRepoInvalidError,
@@ -797,9 +800,200 @@ jiraIssueCommand
     }
   });
 
+function writeBitbucketCommandError(error: unknown, meta: Record<string, unknown>): boolean {
+  if (
+    error instanceof BitbucketConfigurationError ||
+    error instanceof BitbucketRepoMissingError ||
+    error instanceof BitbucketRepoInvalidError ||
+    error instanceof ConfigValidationError
+  ) {
+    writeEnvelope({
+      success: false,
+      schemaVersion: "1.0",
+      error: { code: error.code, message: error.message, details: error.details },
+      meta,
+    });
+    process.exitCode = 2;
+    return true;
+  }
+
+  if (error instanceof BitbucketRepoAmbiguousError) {
+    writeEnvelope({
+      success: false,
+      schemaVersion: "1.0",
+      error: { code: error.code, message: error.message, details: error.details },
+      meta,
+    });
+    process.exitCode = 7;
+    return true;
+  }
+
+  if (error instanceof BitbucketAuthenticationError) {
+    writeEnvelope({
+      success: false,
+      schemaVersion: "1.0",
+      error: { code: error.code, message: error.message, details: error.details },
+      meta,
+    });
+    process.exitCode = 3;
+    return true;
+  }
+
+  if (error instanceof BitbucketPipelineNotFoundError || error instanceof BitbucketPullRequestNotFoundError) {
+    writeEnvelope({
+      success: false,
+      schemaVersion: "1.0",
+      error: { code: error.code, message: error.message, details: error.details },
+      meta,
+    });
+    process.exitCode = 4;
+    return true;
+  }
+
+  if (error instanceof BitbucketProviderError) {
+    writeEnvelope({
+      success: false,
+      schemaVersion: "1.0",
+      error: { code: error.code, message: error.message, details: error.details },
+      meta,
+    });
+    process.exitCode = 5;
+    return true;
+  }
+
+  if (error instanceof BitbucketNetworkError) {
+    writeEnvelope({
+      success: false,
+      schemaVersion: "1.0",
+      error: { code: error.code, message: error.message },
+      meta,
+    });
+    process.exitCode = 6;
+    return true;
+  }
+
+  if (error instanceof BitbucketNormalizedOutputError) {
+    writeEnvelope({
+      success: false,
+      schemaVersion: "1.0",
+      error: { code: error.code, message: error.message, details: error.details },
+      meta,
+    });
+    process.exitCode = 1;
+    return true;
+  }
+
+  return false;
+}
+
 const bitbucketCommand = program
   .command("bitbucket")
   .description("Read Bitbucket resources");
+
+const bitbucketPipelinesCommand = bitbucketCommand
+  .command("pipelines")
+  .description("Read Bitbucket Pipelines runs");
+
+bitbucketPipelinesCommand
+  .command("list")
+  .description("List Bitbucket Pipelines runs for a repository")
+  .option("--repo <repo>", "Bitbucket repository identity as workspace/repo")
+  .option("--branch <branch>")
+  .option("--limit <limit>")
+  .option("--cursor <cursor>")
+  .option("--debug", "Include redacted provider request metadata")
+  .option("--bitbucket-workspace <workspace>")
+  .option("--bitbucket-repo <repo>")
+  .option("--bitbucket-username <username>")
+  .option("--bitbucket-app-password <password>")
+  .action(async (flags) => {
+    const debugRequests: BitbucketDebugRequest[] = [];
+    const meta: Record<string, unknown> = flags.debug ? { debug: { requests: debugRequests } } : {};
+
+    try {
+      const requestedLimit = flags.limit === undefined ? 50 : Number(flags.limit);
+      if (!Number.isInteger(requestedLimit) || requestedLimit < 1) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: "INVALID_LIMIT",
+            message: "Bitbucket pipelines list limit must be a positive integer",
+            details: { limit: Number.isNaN(requestedLimit) ? flags.limit : requestedLimit, min: 1, max: 100 },
+          },
+          meta: {},
+        });
+        process.exitCode = 2;
+        return;
+      }
+
+      const config = resolveConfig({ flags, redactSecrets: false });
+      const result = await listBitbucketPipelines(config, {
+        repo: flags.repo,
+        branch: flags.branch,
+        limit: requestedLimit,
+        cursor: flags.cursor,
+        debugRequests: flags.debug ? debugRequests : undefined,
+      });
+
+      writeEnvelope({
+        success: true,
+        schemaVersion: "1.0",
+        data: result.data,
+        meta: { ...meta, bitbucket: result.repo },
+      });
+    } catch (error) {
+      if (writeBitbucketCommandError(error, meta)) return;
+      writeEnvelope({
+        success: false,
+        schemaVersion: "1.0",
+        error: { code: "INTERNAL_ERROR", message: "Unexpected internal error" },
+        meta,
+      });
+      process.exitCode = 1;
+    }
+  });
+
+bitbucketPipelinesCommand
+  .command("latest")
+  .description("Fetch the latest Bitbucket Pipelines run for a repository")
+  .option("--repo <repo>", "Bitbucket repository identity as workspace/repo")
+  .option("--branch <branch>")
+  .option("--debug", "Include redacted provider request metadata")
+  .option("--bitbucket-workspace <workspace>")
+  .option("--bitbucket-repo <repo>")
+  .option("--bitbucket-username <username>")
+  .option("--bitbucket-app-password <password>")
+  .action(async (flags) => {
+    const debugRequests: BitbucketDebugRequest[] = [];
+    const meta: Record<string, unknown> = flags.debug ? { debug: { requests: debugRequests } } : {};
+
+    try {
+      const config = resolveConfig({ flags, redactSecrets: false });
+      const result = await getLatestBitbucketPipeline(config, {
+        repo: flags.repo,
+        branch: flags.branch,
+        debugRequests: flags.debug ? debugRequests : undefined,
+      });
+
+      writeEnvelope({
+        success: true,
+        schemaVersion: "1.0",
+        data: result.data,
+        meta: { ...meta, bitbucket: result.repo },
+      });
+    } catch (error) {
+      if (writeBitbucketCommandError(error, meta)) return;
+      writeEnvelope({
+        success: false,
+        schemaVersion: "1.0",
+        error: { code: "INTERNAL_ERROR", message: "Unexpected internal error" },
+        meta,
+      });
+      process.exitCode = 1;
+    }
+  });
+
 const bitbucketPrCommand = bitbucketCommand
   .command("pr")
   .description("Read Bitbucket pull requests");

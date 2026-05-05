@@ -60,6 +60,24 @@ type BitbucketPullRequestDiffOptions = {
   debugRequests?: BitbucketDebugRequest[];
 };
 
+type BitbucketPipelineListOptions = {
+  repo?: string;
+  branch?: string;
+  limit?: number;
+  cursor?: string;
+  cwd?: string;
+  fetchImpl?: Fetch;
+  debugRequests?: BitbucketDebugRequest[];
+};
+
+type BitbucketPipelineLatestOptions = {
+  repo?: string;
+  branch?: string;
+  cwd?: string;
+  fetchImpl?: Fetch;
+  debugRequests?: BitbucketDebugRequest[];
+};
+
 export class BitbucketConfigurationError extends Error {
   readonly code = "AUTH_CONFIG_INCOMPLETE";
   readonly details: { provider: "bitbucket"; missing: string[] };
@@ -109,6 +127,16 @@ export class BitbucketPullRequestNotFoundError extends Error {
   constructor(id: number, repo: BitbucketRepoIdentity) {
     super(`Bitbucket pull request ${id} was not found`);
     this.details = { id, repo, status: 404 };
+  }
+}
+
+export class BitbucketPipelineNotFoundError extends Error {
+  readonly code = "BITBUCKET_PIPELINE_NOT_FOUND";
+  readonly details: { repo: BitbucketRepoIdentity; branch: string | null };
+
+  constructor(repo: BitbucketRepoIdentity, branch?: string) {
+    super("No Bitbucket pipeline run was found");
+    this.details = { repo, branch: branch ?? null };
   }
 }
 
@@ -212,6 +240,27 @@ const paginationSchema = z
 const normalizedPullRequestListSchema = z
   .object({
     prs: z.array(normalizedPullRequestSummarySchema),
+    pagination: paginationSchema,
+  })
+  .strict();
+
+const normalizedPipelineSchema = z
+  .object({
+    uuid: z.string(),
+    buildNumber: z.number().int(),
+    state: z.enum(["PENDING", "IN_PROGRESS", "COMPLETED", "PAUSED"]),
+    result: z.enum(["SUCCESSFUL", "FAILED", "ERROR", "STOPPED"]).nullable(),
+    branch: z.string().nullable(),
+    trigger: z.string().nullable(),
+    created: z.iso.datetime(),
+    completed: z.iso.datetime().nullable(),
+    durationInSeconds: z.number().nullable(),
+  })
+  .strict();
+
+const normalizedPipelineListSchema = z
+  .object({
+    pipelines: z.array(normalizedPipelineSchema),
     pagination: paginationSchema,
   })
   .strict();
@@ -515,6 +564,66 @@ function normalizePullRequestList(providerPage: unknown, limit: number): z.infer
   return parsedResult.data;
 }
 
+function stringField(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function normalizePipeline(providerPipeline: unknown): z.infer<typeof normalizedPipelineSchema> {
+  const pipeline = asRecord(providerPipeline);
+  const state = asRecord(pipeline?.state);
+  const result = asRecord(state?.result);
+  const target = asRecord(pipeline?.target);
+  const trigger = asRecord(pipeline?.trigger);
+  const normalized = {
+    uuid: pipeline?.uuid,
+    buildNumber: pipeline?.build_number,
+    state: state?.name,
+    result: result?.name ?? null,
+    branch: stringField(target?.ref_name),
+    trigger: stringField(trigger?.name),
+    created: normalizeTimestamp(pipeline?.created_on),
+    completed: pipeline?.completed_on === undefined || pipeline.completed_on === null ? null : normalizeTimestamp(pipeline.completed_on),
+    durationInSeconds: pipeline?.duration_in_seconds === undefined || pipeline.duration_in_seconds === null ? null : pipeline.duration_in_seconds,
+  };
+
+  const parsedResult = normalizedPipelineSchema.safeParse(normalized);
+  if (!parsedResult.success) {
+    throw new BitbucketNormalizedOutputError(
+      parsedResult.error.issues.map((issue) => ({
+        code: issue.code,
+        message: issue.message,
+        path: issue.path.join("."),
+      })),
+      "Normalized Bitbucket pipeline output failed validation",
+    );
+  }
+
+  return parsedResult.data;
+}
+
+function normalizePipelineList(providerPage: unknown, limit: number): z.infer<typeof normalizedPipelineListSchema> {
+  const page = asRecord(providerPage);
+  const values = Array.isArray(page?.values) ? page.values : [];
+  const normalized = {
+    pipelines: values.map(normalizePipeline),
+    pagination: paginationFromProvider(page, limit),
+  };
+
+  const parsedResult = normalizedPipelineListSchema.safeParse(normalized);
+  if (!parsedResult.success) {
+    throw new BitbucketNormalizedOutputError(
+      parsedResult.error.issues.map((issue) => ({
+        code: issue.code,
+        message: issue.message,
+        path: issue.path.join("."),
+      })),
+      "Normalized Bitbucket pipeline list output failed validation",
+    );
+  }
+
+  return parsedResult.data;
+}
+
 function normalizeCommentInline(value: unknown): z.infer<typeof normalizedPullRequestCommentInlineSchema> | null {
   const inline = asRecord(value);
   if (inline === undefined) {
@@ -675,6 +784,114 @@ function pullRequestFilesUrl(repo: BitbucketRepoIdentity, id: number, limit: num
 
 function pullRequestDiffUrl(repo: BitbucketRepoIdentity, id: number): string {
   return `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(repo.workspace)}/${encodeURIComponent(repo.repo)}/pullrequests/${id}/diff`;
+}
+
+function pipelinesUrl(repo: BitbucketRepoIdentity, limit: number, branch?: string, cursor?: string): string {
+  if (cursor !== undefined) {
+    return cursor;
+  }
+
+  const url = new URL(
+    `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(repo.workspace)}/${encodeURIComponent(repo.repo)}/pipelines/`,
+  );
+  url.searchParams.set("pagelen", String(limit));
+  if (branch !== undefined) {
+    url.searchParams.set("target.ref_name", branch);
+  }
+  return String(url);
+}
+
+async function fetchBitbucketJson(
+  config: ResolvedConfig & { bitbucket: { username: { value: string }; appPassword: { value: string } } },
+  url: string,
+  options: { fetchImpl?: Fetch; debugRequests?: BitbucketDebugRequest[] } = {},
+): Promise<unknown> {
+  const startedAt = Date.now();
+  const fetchImpl = options.fetchImpl ?? fetch;
+  let response: Response;
+
+  try {
+    response = await fetchImpl(url, {
+      headers: {
+        accept: "application/json",
+        authorization: basicAuthorization(
+          config.bitbucket.username.value,
+          config.bitbucket.appPassword.value,
+        ),
+      },
+    });
+  } catch {
+    options.debugRequests?.push({
+      provider: "bitbucket",
+      method: "GET",
+      url,
+      latencyMs: Date.now() - startedAt,
+    });
+    throw new BitbucketNetworkError();
+  }
+
+  options.debugRequests?.push({
+    provider: "bitbucket",
+    method: "GET",
+    url,
+    status: response.status,
+    latencyMs: Date.now() - startedAt,
+  });
+
+  if (response.status === 401 || response.status === 403) {
+    throw new BitbucketAuthenticationError(response.status);
+  }
+
+  if (!response.ok) {
+    throw new BitbucketProviderError("Bitbucket provider request failed", response.status);
+  }
+
+  return readProviderJson(response);
+}
+
+export async function listBitbucketPipelines(
+  config: ResolvedConfig,
+  options: BitbucketPipelineListOptions = {},
+): Promise<{ data: unknown; repo: BitbucketRepoIdentity }> {
+  assertBitbucketConfigComplete(config);
+
+  const repo = resolveBitbucketRepo(config, {
+    repo: options.repo,
+    cwd: options.cwd,
+  });
+  const limit = Math.min(options.limit ?? 50, 100);
+  const url = pipelinesUrl(repo, limit, options.branch, options.cursor);
+  const body = await fetchBitbucketJson(config, url, {
+    fetchImpl: options.fetchImpl,
+    debugRequests: options.debugRequests,
+  });
+
+  return { data: normalizePipelineList(body, limit), repo };
+}
+
+export async function getLatestBitbucketPipeline(
+  config: ResolvedConfig,
+  options: BitbucketPipelineLatestOptions = {},
+): Promise<{ data: unknown; repo: BitbucketRepoIdentity }> {
+  assertBitbucketConfigComplete(config);
+
+  const repo = resolveBitbucketRepo(config, {
+    repo: options.repo,
+    cwd: options.cwd,
+  });
+  const url = pipelinesUrl(repo, 1, options.branch);
+  const body = await fetchBitbucketJson(config, url, {
+    fetchImpl: options.fetchImpl,
+    debugRequests: options.debugRequests,
+  });
+  const page = asRecord(body);
+  const values = Array.isArray(page?.values) ? page.values : [];
+
+  if (values.length === 0) {
+    throw new BitbucketPipelineNotFoundError(repo, options.branch);
+  }
+
+  return { data: normalizePipeline(values[0]), repo };
 }
 
 export async function listBitbucketPullRequests(
