@@ -77,8 +77,8 @@ async function runCommand(command, args, options = {}) {
 }
 
 const bitbucketEnv = {
-  IRE_BITBUCKET_USERNAME: "bb-user",
-  IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+  IRE_BITBUCKET_EMAIL: "bb-user",
+  IRE_BITBUCKET_API_TOKEN: "bb-secret",
 };
 
 test("bitbucket pr comments list fetches an explicit repo and emits normalized paginated comments", async () => {

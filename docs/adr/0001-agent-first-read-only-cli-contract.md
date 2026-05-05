@@ -78,9 +78,11 @@ IRE_JIRA_EMAIL
 IRE_JIRA_API_TOKEN
 IRE_BITBUCKET_WORKSPACE
 IRE_BITBUCKET_REPO
-IRE_BITBUCKET_USERNAME
-IRE_BITBUCKET_APP_PASSWORD
+IRE_BITBUCKET_EMAIL
+IRE_BITBUCKET_API_TOKEN
 ```
+
+Bitbucket Cloud authentication uses Basic HTTP Authentication. `IRE_BITBUCKET_API_TOKEN` is used as the Basic auth password with `IRE_BITBUCKET_EMAIL` as the username.
 
 Profiles are not part of v1. Internals should still pass a resolved config object instead of relying on scattered globals so profile support can be considered later.
 

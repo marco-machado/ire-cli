@@ -368,13 +368,17 @@ function basicAuthorization(username: string, password: string): string {
   return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
 }
 
-function assertBitbucketConfigComplete(config: ResolvedConfig): asserts config is
-  ResolvedConfig & {
-    bitbucket: { username: { value: string }; appPassword: { value: string } };
-  } {
+type BitbucketAuthenticatedConfig = ResolvedConfig & {
+  bitbucket: {
+    email: { value: string };
+    apiToken: { value: string };
+  };
+};
+
+function assertBitbucketConfigComplete(config: ResolvedConfig): asserts config is BitbucketAuthenticatedConfig {
   const missing = [
-    { name: "username", value: config.bitbucket.username.value },
-    { name: "appPassword", value: config.bitbucket.appPassword.value },
+    { name: "email", value: config.bitbucket.email.value },
+    { name: "apiToken", value: config.bitbucket.apiToken.value },
   ]
     .filter((field) => field.value === null)
     .map((field) => field.name);
@@ -945,7 +949,7 @@ function pipelinesUrl(repo: BitbucketRepoIdentity, limit: number, branch?: strin
 }
 
 async function fetchBitbucketText(
-  config: ResolvedConfig & { bitbucket: { username: { value: string }; appPassword: { value: string } } },
+  config: BitbucketAuthenticatedConfig,
   url: string,
   options: { fetchImpl?: Fetch; debugRequests?: BitbucketDebugRequest[] } = {},
 ): Promise<string> {
@@ -958,8 +962,8 @@ async function fetchBitbucketText(
       headers: {
         accept: "text/plain",
         authorization: basicAuthorization(
-          config.bitbucket.username.value,
-          config.bitbucket.appPassword.value,
+          config.bitbucket.email.value,
+          config.bitbucket.apiToken.value,
         ),
       },
     });
@@ -982,7 +986,7 @@ async function fetchBitbucketText(
 }
 
 async function fetchBitbucketJson(
-  config: ResolvedConfig & { bitbucket: { username: { value: string }; appPassword: { value: string } } },
+  config: BitbucketAuthenticatedConfig,
   url: string,
   options: { fetchImpl?: Fetch; debugRequests?: BitbucketDebugRequest[] } = {},
 ): Promise<unknown> {
@@ -995,8 +999,8 @@ async function fetchBitbucketJson(
       headers: {
         accept: "application/json",
         authorization: basicAuthorization(
-          config.bitbucket.username.value,
-          config.bitbucket.appPassword.value,
+          config.bitbucket.email.value,
+          config.bitbucket.apiToken.value,
         ),
       },
     });
@@ -1178,8 +1182,8 @@ export async function listBitbucketPullRequests(
       headers: {
         accept: "application/json",
         authorization: basicAuthorization(
-          config.bitbucket.username.value,
-          config.bitbucket.appPassword.value,
+          config.bitbucket.email.value,
+          config.bitbucket.apiToken.value,
         ),
       },
     });
@@ -1238,8 +1242,8 @@ export async function listBitbucketPullRequestComments(
       headers: {
         accept: "application/json",
         authorization: basicAuthorization(
-          config.bitbucket.username.value,
-          config.bitbucket.appPassword.value,
+          config.bitbucket.email.value,
+          config.bitbucket.apiToken.value,
         ),
       },
     });
@@ -1302,8 +1306,8 @@ export async function listBitbucketPullRequestFiles(
       headers: {
         accept: "application/json",
         authorization: basicAuthorization(
-          config.bitbucket.username.value,
-          config.bitbucket.appPassword.value,
+          config.bitbucket.email.value,
+          config.bitbucket.apiToken.value,
         ),
       },
     });
@@ -1365,8 +1369,8 @@ export async function getBitbucketPullRequestDiff(
       headers: {
         accept: "text/plain",
         authorization: basicAuthorization(
-          config.bitbucket.username.value,
-          config.bitbucket.appPassword.value,
+          config.bitbucket.email.value,
+          config.bitbucket.apiToken.value,
         ),
       },
     });
@@ -1428,8 +1432,8 @@ export async function getBitbucketPullRequest(
       headers: {
         accept: "application/json",
         authorization: basicAuthorization(
-          config.bitbucket.username.value,
-          config.bitbucket.appPassword.value,
+          config.bitbucket.email.value,
+          config.bitbucket.apiToken.value,
         ),
       },
     });

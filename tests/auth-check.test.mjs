@@ -91,8 +91,8 @@ test("auth check verifies all configured providers and emits successful results"
       IRE_JIRA_EMAIL: "agent@example.test",
       IRE_JIRA_API_TOKEN: "jira-secret",
       IRE_BITBUCKET_WORKSPACE: "example-workspace",
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bitbucket-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bitbucket-secret",
     },
   });
   const envelope = parseJson(result.stdout);
@@ -154,8 +154,8 @@ test("auth check jira verifies only Jira", async () => {
       IRE_JIRA_EMAIL: "agent@example.test",
       IRE_JIRA_API_TOKEN: "jira-secret",
       IRE_BITBUCKET_WORKSPACE: "example-workspace",
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bitbucket-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bitbucket-secret",
     },
   });
   const envelope = parseJson(result.stdout);
@@ -278,8 +278,8 @@ test("auth check represents mixed provider success and auth failure", async () =
       IRE_JIRA_EMAIL: "agent@example.test",
       IRE_JIRA_API_TOKEN: "jira-secret",
       IRE_BITBUCKET_WORKSPACE: "example-workspace",
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bitbucket-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bitbucket-secret",
     },
   });
   const envelope = parseJson(result.stdout);
@@ -332,8 +332,8 @@ test("auth check reports provider API errors with exit code 5", async () => {
     nodeArgs: ["--import", hookPath],
     env: {
       IRE_BITBUCKET_WORKSPACE: "example-workspace",
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bitbucket-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bitbucket-secret",
     },
   });
   const envelope = parseJson(result.stdout);

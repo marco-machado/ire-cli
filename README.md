@@ -93,6 +93,8 @@ User config is read from:
 
 Secrets are supported in config if present, but env vars are the documented secret path.
 
+For Bitbucket Cloud, `IRE_BITBUCKET_API_TOKEN` is sent as the Basic auth password with `IRE_BITBUCKET_EMAIL` as the Basic auth username.
+
 Supported env vars:
 
 ```text
@@ -101,8 +103,8 @@ IRE_JIRA_EMAIL
 IRE_JIRA_API_TOKEN
 IRE_BITBUCKET_WORKSPACE
 IRE_BITBUCKET_REPO
-IRE_BITBUCKET_USERNAME
-IRE_BITBUCKET_APP_PASSWORD
+IRE_BITBUCKET_EMAIL
+IRE_BITBUCKET_API_TOKEN
 ```
 
 Example project config:
@@ -117,8 +119,8 @@ Example project config:
   "bitbucket": {
     "workspace": "example-workspace",
     "repo": "example-repo",
-    "username": "agent@example.com",
-    "appPassword": "use-env-for-secrets-when-possible"
+    "email": "agent@example.com",
+    "apiToken": "use-env-for-secrets-when-possible"
   }
 }
 ```
@@ -198,8 +200,8 @@ Bitbucket config flags are:
 ```text
 --bitbucket-workspace <workspace>
 --bitbucket-repo <repo>
---bitbucket-username <username>
---bitbucket-app-password <password>
+--bitbucket-email <email>
+--bitbucket-api-token <token>
 ```
 
 ## Pagination

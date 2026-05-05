@@ -89,8 +89,8 @@ test("bitbucket pr diff fetches an explicit repo and emits a normalized diff env
   const result = await runIre(["bitbucket", "pr", "diff", "42", "--repo", "workspace-one/repo-one"], {
     nodeArgs: ["--import", hookPath],
     env: {
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
   const envelope = parseJson(result.stdout);
@@ -122,7 +122,7 @@ test("bitbucket pr diff reuses config and Git remote repository resolution", asy
   const fromConfig = await runIre(["bitbucket", "pr", "diff", "7"], {
     cwd: configDir,
     nodeArgs: ["--import", hookPath],
-    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+    env: { IRE_BITBUCKET_EMAIL: "bb-user", IRE_BITBUCKET_API_TOKEN: "bb-secret" },
   });
   assert.equal(fromConfig.exitCode, 0);
   assert.deepEqual(parseJson(fromConfig.stdout).meta.bitbucket, { workspace: "config-workspace", repo: "config-repo" });
@@ -134,7 +134,7 @@ test("bitbucket pr diff reuses config and Git remote repository resolution", asy
   const fromRemote = await runIre(["bitbucket", "pr", "diff", "8"], {
     cwd: remoteDir,
     nodeArgs: ["--import", hookPath],
-    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+    env: { IRE_BITBUCKET_EMAIL: "bb-user", IRE_BITBUCKET_API_TOKEN: "bb-secret" },
   });
   assert.equal(fromRemote.exitCode, 0);
   assert.deepEqual(parseJson(fromRemote.stdout).meta.bitbucket, { workspace: "remote-workspace", repo: "remote-repo" });
@@ -145,14 +145,14 @@ test("bitbucket pr diff validates required ID before network calls", async () =>
 
   const missing = await runIre(["bitbucket", "pr", "diff", "--repo", "ws/repo"], {
     nodeArgs: ["--import", hookPath],
-    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+    env: { IRE_BITBUCKET_EMAIL: "bb-user", IRE_BITBUCKET_API_TOKEN: "bb-secret" },
   });
   assert.equal(missing.exitCode, 2);
   assert.equal(parseJson(missing.stdout).error.code, "MISSING_ARGUMENT");
 
   const invalid = await runIre(["bitbucket", "pr", "diff", "0", "--repo", "ws/repo"], {
     nodeArgs: ["--import", hookPath],
-    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+    env: { IRE_BITBUCKET_EMAIL: "bb-user", IRE_BITBUCKET_API_TOKEN: "bb-secret" },
   });
   assert.equal(invalid.exitCode, 2);
   assert.equal(parseJson(invalid.stdout).error.code, "INVALID_ARGUMENT");
@@ -170,7 +170,7 @@ test("bitbucket pr diff maps provider, network, and repository failures", async 
     const hookPath = await writeFetchHook(`globalThis.fetch = async () => new Response("failed", { status: ${failure.status} });`);
     const result = await runIre(["bitbucket", "pr", "diff", "12", "--repo", "ws/repo"], {
       nodeArgs: ["--import", hookPath],
-      env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+      env: { IRE_BITBUCKET_EMAIL: "bb-user", IRE_BITBUCKET_API_TOKEN: "bb-secret" },
     });
     assert.equal(result.exitCode, failure.exitCode);
     assert.equal(parseJson(result.stdout).error.code, failure.code);
@@ -179,21 +179,21 @@ test("bitbucket pr diff maps provider, network, and repository failures", async 
   const networkHookPath = await writeFetchHook(`globalThis.fetch = async () => { throw new Error("offline"); };`);
   const network = await runIre(["bitbucket", "pr", "diff", "13", "--repo", "ws/repo"], {
     nodeArgs: ["--import", networkHookPath],
-    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+    env: { IRE_BITBUCKET_EMAIL: "bb-user", IRE_BITBUCKET_API_TOKEN: "bb-secret" },
   });
   assert.equal(network.exitCode, 6);
   assert.equal(parseJson(network.stdout).error.code, "BITBUCKET_NETWORK_ERROR");
 
   const invalidRepo = await runIre(["bitbucket", "pr", "diff", "13", "--repo", "not-a-repo"], {
     nodeArgs: ["--import", networkHookPath],
-    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+    env: { IRE_BITBUCKET_EMAIL: "bb-user", IRE_BITBUCKET_API_TOKEN: "bb-secret" },
   });
   assert.equal(invalidRepo.exitCode, 2);
   assert.equal(parseJson(invalidRepo.stdout).error.code, "BITBUCKET_REPO_INVALID");
 
   const missing = await runIre(["bitbucket", "pr", "diff", "13"], {
     nodeArgs: ["--import", networkHookPath],
-    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+    env: { IRE_BITBUCKET_EMAIL: "bb-user", IRE_BITBUCKET_API_TOKEN: "bb-secret" },
   });
   assert.equal(missing.exitCode, 2);
   assert.equal(parseJson(missing.stdout).error.code, "BITBUCKET_REPO_MISSING");
@@ -205,7 +205,7 @@ test("bitbucket pr diff maps provider, network, and repository failures", async 
   const ambiguous = await runIre(["bitbucket", "pr", "diff", "13"], {
     cwd: ambiguousDir,
     nodeArgs: ["--import", networkHookPath],
-    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+    env: { IRE_BITBUCKET_EMAIL: "bb-user", IRE_BITBUCKET_API_TOKEN: "bb-secret" },
   });
   assert.equal(ambiguous.exitCode, 7);
   assert.equal(parseJson(ambiguous.stdout).error.code, "BITBUCKET_REPO_AMBIGUOUS");
