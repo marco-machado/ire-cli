@@ -1,5 +1,6 @@
 ## Repository Guidelines
 
+- Use logical groups when commiting
 - Use Conventional Commits format
 - Use `AskUserQuestion` tool if available
 
