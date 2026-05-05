@@ -13,6 +13,7 @@ import {
 import { ConfigValidationError, resolveConfig } from "./config.js";
 import {
   getJiraIssue,
+  searchJiraIssues,
   JiraAuthenticationError,
   JiraConfigurationError,
   type JiraDebugRequest,
@@ -245,11 +246,12 @@ program
     }
   });
 
-program
-  .command("jira")
-  .description("Read Jira resources")
+const jiraCommand = program.command("jira").description("Read Jira resources");
+const jiraIssueCommand = jiraCommand
   .command("issue")
-  .description("Read Jira issues")
+  .description("Read Jira issues");
+
+jiraIssueCommand
   .command("get")
   .description("Fetch a Jira issue by explicit key")
   .argument("[key]", "Jira issue key")
@@ -352,6 +354,178 @@ program
           meta,
         });
         process.exitCode = 4;
+        return;
+      }
+
+      if (error instanceof JiraProviderError) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+          },
+          meta,
+        });
+        process.exitCode = 5;
+        return;
+      }
+
+      if (error instanceof JiraNetworkError) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: error.code,
+            message: error.message,
+          },
+          meta,
+        });
+        process.exitCode = 6;
+        return;
+      }
+
+      if (error instanceof JiraNormalizedOutputError) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+          },
+          meta,
+        });
+        process.exitCode = 1;
+        return;
+      }
+
+      writeEnvelope({
+        success: false,
+        schemaVersion: "1.0",
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Unexpected internal error",
+        },
+        meta,
+      });
+      process.exitCode = 1;
+    }
+  });
+
+jiraIssueCommand
+  .command("search")
+  .description("Search Jira issues using provider-native JQL")
+  .option("--jql <query>")
+  .option("--limit <limit>")
+  .option("--cursor <cursor>")
+  .option("--debug", "Include redacted provider request metadata")
+  .option("--jira-base-url <url>")
+  .option("--jira-email <email>")
+  .option("--jira-api-token <token>")
+  .action(async (flags) => {
+    const debugRequests: JiraDebugRequest[] = [];
+    const meta: Record<string, unknown> = flags.debug
+      ? { debug: { requests: debugRequests } }
+      : {};
+
+    try {
+      if (flags.jql === undefined) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: "MISSING_OPTION",
+            message: "Jira issue search JQL is required",
+            details: {
+              option: "--jql",
+            },
+          },
+          meta: {},
+        });
+        process.exitCode = 2;
+        return;
+      }
+
+      const limit = flags.limit === undefined ? 50 : Number(flags.limit);
+
+      if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: "INVALID_LIMIT",
+            message: "Jira issue search limit must be between 1 and 100",
+            details: {
+              limit: Number.isNaN(limit) ? flags.limit : limit,
+              min: 1,
+              max: 100,
+            },
+          },
+          meta: {},
+        });
+        process.exitCode = 2;
+        return;
+      }
+
+      const config = resolveConfig({ flags, redactSecrets: false });
+      const data = await searchJiraIssues(config, {
+        jql: flags.jql,
+        limit,
+        cursor: flags.cursor,
+        debugRequests: flags.debug ? debugRequests : undefined,
+      });
+
+      writeEnvelope({
+        success: true,
+        schemaVersion: "1.0",
+        data,
+        meta,
+      });
+    } catch (error) {
+      if (error instanceof JiraConfigurationError) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+          },
+          meta,
+        });
+        process.exitCode = 2;
+        return;
+      }
+
+      if (error instanceof ConfigValidationError) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+          },
+          meta,
+        });
+        process.exitCode = 2;
+        return;
+      }
+
+      if (error instanceof JiraAuthenticationError) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+          },
+          meta,
+        });
+        process.exitCode = 3;
         return;
       }
 

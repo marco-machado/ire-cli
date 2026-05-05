@@ -19,6 +19,14 @@ type JiraIssueGetOptions = {
   debugRequests?: JiraDebugRequest[];
 };
 
+type JiraIssueSearchOptions = {
+  jql: string;
+  limit?: number;
+  cursor?: string;
+  fetchImpl?: Fetch;
+  debugRequests?: JiraDebugRequest[];
+};
+
 export class JiraConfigurationError extends Error {
   readonly code = "AUTH_CONFIG_INCOMPLETE";
   readonly details: {
@@ -81,8 +89,11 @@ export class JiraNormalizedOutputError extends Error {
   readonly code = "INTERNAL_ERROR";
   readonly details: Array<{ code: string; message: string; path: string }>;
 
-  constructor(details: Array<{ code: string; message: string; path: string }>) {
-    super("Normalized Jira issue output failed validation");
+  constructor(
+    details: Array<{ code: string; message: string; path: string }>,
+    message = "Normalized Jira issue output failed validation",
+  ) {
+    super(message);
     this.details = details;
   }
 }
@@ -116,7 +127,36 @@ const normalizedJiraIssueSchema = z
   })
   .strict();
 
+const normalizedJiraIssueSummarySchema = z
+  .object({
+    key: z.string(),
+    summary: z.string(),
+    status: z.string(),
+    issueType: z.string(),
+    priority: z.string().nullable().optional(),
+    assignee: userSchema.nullable().optional(),
+    created: z.iso.datetime(),
+    updated: z.iso.datetime(),
+  })
+  .strict();
+
+const normalizedJiraIssueSearchSchema = z
+  .object({
+    issues: z.array(normalizedJiraIssueSummarySchema),
+    pagination: z
+      .object({
+        limit: z.number().int().min(1).max(100),
+        nextCursor: z.string().nullable(),
+        hasNextPage: z.boolean(),
+      })
+      .strict(),
+  })
+  .strict();
+
 export type NormalizedJiraIssue = z.infer<typeof normalizedJiraIssueSchema>;
+export type NormalizedJiraIssueSummary = z.infer<
+  typeof normalizedJiraIssueSummarySchema
+>;
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, "");
@@ -260,6 +300,30 @@ function descriptionField(value: unknown): string | null | undefined {
   return adfToPlainText(value);
 }
 
+function normalizeJiraIssueSummary(providerIssue: unknown): Record<string, unknown> {
+  const issue = asRecord(providerIssue);
+  const fields = asRecord(issue?.fields);
+  const normalized: Record<string, unknown> = {
+    key: issue?.key,
+    summary: fields?.summary,
+    status: namedField(fields?.status),
+    issueType: namedField(fields?.issuetype),
+    created: normalizeTimestamp(fields?.created),
+    updated: normalizeTimestamp(fields?.updated),
+  };
+
+  if (fields !== undefined && hasOwn(fields, "priority")) {
+    normalized.priority =
+      fields.priority === null ? null : namedField(fields.priority);
+  }
+
+  if (fields !== undefined && hasOwn(fields, "assignee")) {
+    normalized.assignee = userField(fields.assignee);
+  }
+
+  return normalized;
+}
+
 function normalizeJiraIssue(providerIssue: unknown): NormalizedJiraIssue {
   const issue = asRecord(providerIssue);
   const fields = asRecord(issue?.fields);
@@ -306,6 +370,40 @@ function normalizeJiraIssue(providerIssue: unknown): NormalizedJiraIssue {
   return parsedResult.data;
 }
 
+function normalizeJiraIssueSearch(
+  providerSearch: unknown,
+  limit: number,
+): z.infer<typeof normalizedJiraIssueSearchSchema> {
+  const search = asRecord(providerSearch);
+  const startAt = typeof search?.startAt === "number" ? search.startAt : 0;
+  const total = typeof search?.total === "number" ? search.total : 0;
+  const issues = Array.isArray(search?.issues) ? search.issues : [];
+  const nextStartAt = startAt + limit;
+  const hasNextPage = nextStartAt < total;
+  const normalized = {
+    issues: issues.map(normalizeJiraIssueSummary),
+    pagination: {
+      limit,
+      nextCursor: hasNextPage ? String(nextStartAt) : null,
+      hasNextPage,
+    },
+  };
+  const parsedResult = normalizedJiraIssueSearchSchema.safeParse(normalized);
+
+  if (!parsedResult.success) {
+    throw new JiraNormalizedOutputError(
+      parsedResult.error.issues.map((issue) => ({
+        code: issue.code,
+        message: issue.message,
+        path: issue.path.join("."),
+      })),
+      "Normalized Jira issue search output failed validation",
+    );
+  }
+
+  return parsedResult.data;
+}
+
 async function readProviderJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
@@ -315,6 +413,65 @@ async function readProviderJson(response: Response): Promise<unknown> {
       response.status,
     );
   }
+}
+
+export async function searchJiraIssues(
+  config: ResolvedConfig,
+  options: JiraIssueSearchOptions,
+): Promise<unknown> {
+  assertJiraConfigComplete(config);
+
+  const limit = options.limit ?? 50;
+  const startAt = options.cursor ?? "0";
+  const url = new URL(
+    `${normalizeBaseUrl(config.jira.baseUrl.value)}/rest/api/3/search`,
+  );
+  url.searchParams.set("jql", options.jql);
+  url.searchParams.set("maxResults", String(limit));
+  url.searchParams.set("startAt", startAt);
+
+  const startedAt = Date.now();
+  const fetchImpl = options.fetchImpl ?? fetch;
+  let response: Response;
+
+  try {
+    response = await fetchImpl(String(url), {
+      headers: {
+        accept: "application/json",
+        authorization: basicAuthorization(
+          config.jira.email.value,
+          config.jira.apiToken.value,
+        ),
+      },
+    });
+  } catch {
+    options.debugRequests?.push({
+      provider: "jira",
+      method: "GET",
+      url: String(url),
+      latencyMs: Date.now() - startedAt,
+    });
+    throw new JiraNetworkError();
+  }
+
+  options.debugRequests?.push({
+    provider: "jira",
+    method: "GET",
+    url: String(url),
+    status: response.status,
+    latencyMs: Date.now() - startedAt,
+  });
+
+  if (response.status === 401 || response.status === 403) {
+    throw new JiraAuthenticationError(response.status);
+  }
+
+  if (!response.ok) {
+    throw new JiraProviderError("Jira provider request failed", response.status);
+  }
+
+  const body = await readProviderJson(response);
+  return normalizeJiraIssueSearch(body, limit);
 }
 
 export async function getJiraIssue(
