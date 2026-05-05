@@ -1,0 +1,23 @@
+{
+  "name": "ire-cli",
+  "version": "0.1.0",
+  "description": "CLI tool for IRE",
+  "homepage": "https://github.com/marco-machado/ire-cli#readme",
+  "bugs": {
+    "url": "https://github.com/marco-machado/ire-cli/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marco-machado/ire-cli.git"
+  },
+  "license": "ISC",
+  "author": "Marco Machado <marco.machado@gmail.com>",
+  "type": "esm",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}
