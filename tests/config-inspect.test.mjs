@@ -72,6 +72,7 @@ test("config inspect reports defaulted config fields", async () => {
       },
       bitbucket: {
         workspace: { value: null, source: "default" },
+        repo: { value: null, source: "default" },
         username: { value: null, source: "default" },
         appPassword: { value: null, source: "default" },
       },
@@ -86,6 +87,7 @@ test("config inspect resolves process environment values and redacts secrets", a
       IRE_JIRA_EMAIL: "agent@example.test",
       IRE_JIRA_API_TOKEN: "jira-secret",
       IRE_BITBUCKET_WORKSPACE: "example-workspace",
+      IRE_BITBUCKET_REPO: "example-repo",
       IRE_BITBUCKET_USERNAME: "bb-user",
       IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
     },
@@ -100,6 +102,7 @@ test("config inspect resolves process environment values and redacts secrets", a
     },
     bitbucket: {
       workspace: { value: "example-workspace", source: "env" },
+      repo: { value: "example-repo", source: "env" },
       username: { value: "bb-user", source: "env" },
       appPassword: { value: "<redacted>", source: "env" },
     },
@@ -156,6 +159,7 @@ test("config inspect respects flag env project and user config precedence", asyn
       },
       bitbucket: {
         workspace: "user-workspace",
+        repo: "user-repo",
         username: "user-bb",
         appPassword: "user-bb-secret",
       },
@@ -169,6 +173,7 @@ test("config inspect respects flag env project and user config precedence", asyn
       },
       bitbucket: {
         workspace: "project-config-workspace",
+        repo: "project-config-repo",
       },
     }),
   );
@@ -211,6 +216,7 @@ test("config inspect respects flag env project and user config precedence", asyn
     },
     bitbucket: {
       workspace: { value: "env-workspace", source: "env" },
+      repo: { value: "project-config-repo", source: "project-config" },
       username: { value: "project-env-bb", source: "project-env" },
       appPassword: { value: "<redacted>", source: "flag" },
     },

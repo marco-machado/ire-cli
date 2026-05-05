@@ -83,6 +83,7 @@ IRE_JIRA_BASE_URL
 IRE_JIRA_EMAIL
 IRE_JIRA_API_TOKEN
 IRE_BITBUCKET_WORKSPACE
+IRE_BITBUCKET_REPO
 IRE_BITBUCKET_USERNAME
 IRE_BITBUCKET_APP_PASSWORD
 ```
@@ -98,6 +99,7 @@ Example project config:
   },
   "bitbucket": {
     "workspace": "example-workspace",
+    "repo": "example-repo",
     "username": "agent@example.com",
     "appPassword": "use-env-for-secrets-when-possible"
   }
@@ -126,10 +128,15 @@ ire jira issue comments list KEY
 
 Jira issue keys are always explicit. The CLI does not infer Jira issue identity from branch names.
 
+Available Bitbucket commands:
+
+```text
+ire bitbucket pr get ID [--repo workspace/repo]
+```
+
 Planned Bitbucket commands:
 
 ```text
-ire bitbucket pr get ID
 ire bitbucket pr list --repo workspace/repo
 ire bitbucket pr comments list ID --repo workspace/repo
 ire bitbucket pr diff ID --repo workspace/repo
@@ -148,7 +155,7 @@ ire bitbucket pipelines log UUID STEP_UUID --repo workspace/repo
 
 Pipeline artifacts, reruns, and stops are out of scope for v1.
 
-Bitbucket repository identity can be provided explicitly, read from config, or inferred from local Git remotes when unambiguous. Responses include the resolved workspace/repo in `meta`.
+Bitbucket repository identity can be provided explicitly via `--repo workspace/repo`, read from config (`bitbucket.workspace` + `bitbucket.repo`), or inferred from local Git remotes when unambiguous. Responses include the resolved workspace/repo in `meta.bitbucket`.
 
 ## Pagination
 

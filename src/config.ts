@@ -28,6 +28,7 @@ export type ConfigFlags = {
   jiraEmail?: string;
   jiraApiToken?: string;
   bitbucketWorkspace?: string;
+  bitbucketRepo?: string;
   bitbucketUsername?: string;
   bitbucketAppPassword?: string;
 };
@@ -62,6 +63,7 @@ export type ResolvedConfig = {
   };
   bitbucket: {
     workspace: ResolvedField;
+    repo: ResolvedField;
     username: ResolvedField;
     appPassword: ResolvedField;
   };
@@ -82,6 +84,7 @@ const fields = {
   },
   bitbucket: {
     workspace: { envVar: "IRE_BITBUCKET_WORKSPACE", secret: false },
+    repo: { envVar: "IRE_BITBUCKET_REPO", secret: false },
     username: { envVar: "IRE_BITBUCKET_USERNAME", secret: false },
     appPassword: { envVar: "IRE_BITBUCKET_APP_PASSWORD", secret: true },
   },
@@ -102,6 +105,7 @@ const configFileSchema = z
     bitbucket: z
       .object({
         workspace: nullableString,
+        repo: nullableString,
         username: nullableString,
         appPassword: nullableString,
       })
@@ -156,6 +160,13 @@ function applySource(
     values[fields.bitbucket.workspace.envVar],
     source,
     config.bitbucket.workspace,
+    redactSecrets,
+  );
+  config.bitbucket.repo = resolveSourceField(
+    fields.bitbucket.repo,
+    values[fields.bitbucket.repo.envVar],
+    source,
+    config.bitbucket.repo,
     redactSecrets,
   );
   config.bitbucket.username = resolveSourceField(
@@ -298,6 +309,7 @@ function configFileToValues(config: ConfigFile): RawConfigValues {
     [fields.jira.email.envVar]: config.jira?.email,
     [fields.jira.apiToken.envVar]: config.jira?.apiToken,
     [fields.bitbucket.workspace.envVar]: config.bitbucket?.workspace,
+    [fields.bitbucket.repo.envVar]: config.bitbucket?.repo,
     [fields.bitbucket.username.envVar]: config.bitbucket?.username,
     [fields.bitbucket.appPassword.envVar]: config.bitbucket?.appPassword,
   };
@@ -309,6 +321,7 @@ function flagsToValues(flags: ConfigFlags): RawConfigValues {
     [fields.jira.email.envVar]: flags.jiraEmail,
     [fields.jira.apiToken.envVar]: flags.jiraApiToken,
     [fields.bitbucket.workspace.envVar]: flags.bitbucketWorkspace,
+    [fields.bitbucket.repo.envVar]: flags.bitbucketRepo,
     [fields.bitbucket.username.envVar]: flags.bitbucketUsername,
     [fields.bitbucket.appPassword.envVar]: flags.bitbucketAppPassword,
   };
@@ -328,6 +341,7 @@ export function resolveConfig(options: ResolveConfigOptions = {}): ResolvedConfi
     },
     bitbucket: {
       workspace: defaultField(),
+      repo: defaultField(),
       username: defaultField(),
       appPassword: defaultField(),
     },
