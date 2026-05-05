@@ -40,6 +40,10 @@ Per-user configuration stored at `~/.config/ire-cli/config.json`.
 
 Environment file discovered at the Git root, or at the current working directory outside a Git repository. It may provide credentials and local defaults.
 
+### Bitbucket credential
+
+The secret used as the password portion of Bitbucket Cloud Basic authentication. `ire-cli` uses `bitbucket.apiToken` / `IRE_BITBUCKET_API_TOKEN`, paired with `bitbucket.email` / `IRE_BITBUCKET_EMAIL`.
+
 ### Configuration precedence
 
 The order used to resolve settings:

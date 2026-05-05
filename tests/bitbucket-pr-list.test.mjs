@@ -110,8 +110,8 @@ test("bitbucket pr list fetches an explicit repo and emits normalized PR summari
   const result = await runIre(["bitbucket", "pr", "list", "--repo", "workspace-one/repo-one"], {
     nodeArgs: ["--import", hookPath],
     env: {
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
   const envelope = parseJson(result.stdout);
@@ -172,8 +172,8 @@ test("bitbucket pr list reuses repository resolution from config and Git remote"
     cwd: configDir,
     nodeArgs: ["--import", hookPath],
     env: {
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
   assert.equal(fromConfig.exitCode, 0);
@@ -190,8 +190,8 @@ test("bitbucket pr list reuses repository resolution from config and Git remote"
     cwd: remoteDir,
     nodeArgs: ["--import", hookPath],
     env: {
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
   assert.equal(fromRemote.exitCode, 0);
@@ -216,8 +216,8 @@ test("bitbucket pr list propagates limit and cursor and emits last-page paginati
   const result = await runIre(["bitbucket", "pr", "list", "--repo", "ws/repo", "--limit", "25", "--cursor", cursor], {
     nodeArgs: ["--import", hookPath],
     env: {
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
   const envelope = parseJson(result.stdout);
@@ -238,8 +238,8 @@ test("bitbucket pr list rejects limits above 100 before network calls", async ()
   const result = await runIre(["bitbucket", "pr", "list", "--repo", "ws/repo", "--limit", "101"], {
     nodeArgs: ["--import", hookPath],
     env: {
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
   const envelope = parseJson(result.stdout);
@@ -263,8 +263,8 @@ test("bitbucket pr list maps provider failures to stable exit codes", async () =
     const result = await runIre(["bitbucket", "pr", "list", "--repo", "ws/repo"], {
       nodeArgs: ["--import", hookPath],
       env: {
-        IRE_BITBUCKET_USERNAME: "bb-user",
-        IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+        IRE_BITBUCKET_EMAIL: "bb-user",
+        IRE_BITBUCKET_API_TOKEN: "bb-secret",
       },
     });
     const envelope = parseJson(result.stdout);
@@ -283,8 +283,8 @@ test("bitbucket pr list maps repository, network, and validation failures", asyn
   const network = await runIre(["bitbucket", "pr", "list", "--repo", "ws/repo"], {
     nodeArgs: ["--import", networkHookPath],
     env: {
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
   assert.equal(network.exitCode, 6);
@@ -296,8 +296,8 @@ test("bitbucket pr list maps repository, network, and validation failures", asyn
   const validation = await runIre(["bitbucket", "pr", "list", "--repo", "ws/repo"], {
     nodeArgs: ["--import", validationHookPath],
     env: {
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
   assert.equal(validation.exitCode, 1);
@@ -306,8 +306,8 @@ test("bitbucket pr list maps repository, network, and validation failures", asyn
   const invalidRepo = await runIre(["bitbucket", "pr", "list", "--repo", "not-a-repo"], {
     nodeArgs: ["--import", networkHookPath],
     env: {
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
   assert.equal(invalidRepo.exitCode, 2);

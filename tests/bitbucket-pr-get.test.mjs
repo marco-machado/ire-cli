@@ -109,8 +109,8 @@ test("bitbucket pr get fetches an explicit repo and emits a normalized PR envelo
   const result = await runIre(["bitbucket", "pr", "get", "42", "--repo", "workspace-one/repo-one"], {
     nodeArgs: ["--import", hookPath],
     env: {
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
   const envelope = parseJson(result.stdout);
@@ -138,6 +138,38 @@ test("bitbucket pr get fetches an explicit repo and emits a normalized PR envelo
       repo: "repo-one",
     },
   });
+});
+
+test("bitbucket pr get accepts a Bitbucket API token as the Basic auth password", async () => {
+  const hookPath = await writeFetchHook(`
+    globalThis.fetch = async (input, init = {}) => {
+      const url = String(input);
+      const headers = new Headers(init.headers);
+      const expectedAuthorization = "Basic " + Buffer.from("bb-user:bb-api-token").toString("base64");
+
+      if (url !== "https://api.bitbucket.org/2.0/repositories/ws/repo/pullrequests/43") {
+        return Response.json({ message: "unexpected url", url }, { status: 500 });
+      }
+      if (headers.get("authorization") !== expectedAuthorization) {
+        return Response.json({ message: "unexpected authorization" }, { status: 401 });
+      }
+
+      return Response.json({ id: 43, title: "Provider payload" });
+    };
+  `);
+
+  const result = await runIre(["bitbucket", "pr", "get", "43", "--repo", "ws/repo", "--raw"], {
+    nodeArgs: ["--import", hookPath],
+    env: {
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-api-token",
+    },
+  });
+  const envelope = parseJson(result.stdout);
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stdout.includes("bb-api-token"), false);
+  assert.deepEqual(envelope.data, { id: 43, title: "Provider payload" });
 });
 
 test("bitbucket pr get falls back to config defaults when --repo is absent", async () => {
@@ -168,8 +200,8 @@ test("bitbucket pr get falls back to config defaults when --repo is absent", asy
     cwd: projectDir,
     nodeArgs: ["--import", hookPath],
     env: {
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
   const envelope = parseJson(result.stdout);
@@ -203,8 +235,8 @@ test("bitbucket pr get infers an unambiguous Bitbucket SSH remote", async () => 
     cwd: projectDir,
     nodeArgs: ["--import", hookPath],
     env: {
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
   const envelope = parseJson(result.stdout);
@@ -237,8 +269,8 @@ test("bitbucket pr get infers an unambiguous Bitbucket HTTPS remote", async () =
     cwd: projectDir,
     nodeArgs: ["--import", hookPath],
     env: {
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
   const envelope = parseJson(result.stdout);
@@ -260,8 +292,8 @@ test("bitbucket pr get rejects ambiguous and missing repository identity before 
     cwd: ambiguousDir,
     nodeArgs: ["--import", hookPath],
     env: {
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
   const ambiguousEnvelope = parseJson(ambiguous.stdout);
@@ -276,8 +308,8 @@ test("bitbucket pr get rejects ambiguous and missing repository identity before 
   const missing = await runIre(["bitbucket", "pr", "get", "10"], {
     nodeArgs: ["--import", hookPath],
     env: {
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
   const missingEnvelope = parseJson(missing.stdout);
@@ -300,8 +332,8 @@ test("bitbucket pr get --raw returns the provider-native payload in a success en
   const result = await runIre(["bitbucket", "pr", "get", "11", "--repo", "raw-ws/raw-repo", "--raw"], {
     nodeArgs: ["--import", hookPath],
     env: {
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
   const envelope = parseJson(result.stdout);
@@ -326,8 +358,8 @@ test("bitbucket pr get maps provider failures to stable exit codes", async () =>
     const result = await runIre(["bitbucket", "pr", "get", "12", "--repo", "ws/repo"], {
       nodeArgs: ["--import", hookPath],
       env: {
-        IRE_BITBUCKET_USERNAME: "bb-user",
-        IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+        IRE_BITBUCKET_EMAIL: "bb-user",
+        IRE_BITBUCKET_API_TOKEN: "bb-secret",
       },
     });
     const envelope = parseJson(result.stdout);
@@ -346,8 +378,8 @@ test("bitbucket pr get maps network and validation failures", async () => {
   const network = await runIre(["bitbucket", "pr", "get", "13", "--repo", "ws/repo"], {
     nodeArgs: ["--import", networkHookPath],
     env: {
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
   assert.equal(network.exitCode, 6);
@@ -359,8 +391,8 @@ test("bitbucket pr get maps network and validation failures", async () => {
   const validation = await runIre(["bitbucket", "pr", "get", "13", "--repo", "ws/repo"], {
     nodeArgs: ["--import", validationHookPath],
     env: {
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
   assert.equal(validation.exitCode, 1);

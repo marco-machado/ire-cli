@@ -119,8 +119,8 @@ program
   .option("--jira-api-token <token>")
   .option("--bitbucket-workspace <workspace>")
   .option("--bitbucket-repo <repo>")
-  .option("--bitbucket-username <username>")
-  .option("--bitbucket-app-password <password>")
+  .option("--bitbucket-email <email>")
+  .option("--bitbucket-api-token <token>")
   .action((flags) => {
     try {
       const config = resolveConfig({ flags });
@@ -171,8 +171,8 @@ program
   .option("--jira-email <email>")
   .option("--jira-api-token <token>")
   .option("--bitbucket-workspace <workspace>")
-  .option("--bitbucket-username <username>")
-  .option("--bitbucket-app-password <password>")
+  .option("--bitbucket-email <email>")
+  .option("--bitbucket-api-token <token>")
   .action(async (provider: string | undefined, flags) => {
     try {
       if (provider !== undefined && !isProviderName(provider)) {
@@ -905,8 +905,8 @@ bitbucketPipelinesCommand
   .option("--debug", "Include redacted provider request metadata")
   .option("--bitbucket-workspace <workspace>")
   .option("--bitbucket-repo <repo>")
-  .option("--bitbucket-username <username>")
-  .option("--bitbucket-app-password <password>")
+  .option("--bitbucket-email <email>")
+  .option("--bitbucket-api-token <token>")
   .action(async (uuid: string, flags) => {
     const debugRequests: BitbucketDebugRequest[] = [];
     const meta: Record<string, unknown> = flags.debug ? { debug: { requests: debugRequests } } : {};
@@ -961,8 +961,8 @@ bitbucketPipelinesCommand
   .option("--debug", "Include redacted provider request metadata")
   .option("--bitbucket-workspace <workspace>")
   .option("--bitbucket-repo <repo>")
-  .option("--bitbucket-username <username>")
-  .option("--bitbucket-app-password <password>")
+  .option("--bitbucket-email <email>")
+  .option("--bitbucket-api-token <token>")
   .action(async (flags) => {
     const debugRequests: BitbucketDebugRequest[] = [];
     const meta: Record<string, unknown> = flags.debug ? { debug: { requests: debugRequests } } : {};
@@ -1020,8 +1020,8 @@ bitbucketPipelinesCommand
   .option("--debug", "Include redacted provider request metadata")
   .option("--bitbucket-workspace <workspace>")
   .option("--bitbucket-repo <repo>")
-  .option("--bitbucket-username <username>")
-  .option("--bitbucket-app-password <password>")
+  .option("--bitbucket-email <email>")
+  .option("--bitbucket-api-token <token>")
   .action(async (uuid: string | undefined, stepUuid: string | undefined, flags) => {
     const debugRequests: BitbucketDebugRequest[] = [];
     const meta: Record<string, unknown> = flags.debug ? { debug: { requests: debugRequests } } : {};
@@ -1082,8 +1082,8 @@ bitbucketPipelineStepsCommand
   .option("--debug", "Include redacted provider request metadata")
   .option("--bitbucket-workspace <workspace>")
   .option("--bitbucket-repo <repo>")
-  .option("--bitbucket-username <username>")
-  .option("--bitbucket-app-password <password>")
+  .option("--bitbucket-email <email>")
+  .option("--bitbucket-api-token <token>")
   .action(async (uuid: string | undefined, flags) => {
     const debugRequests: BitbucketDebugRequest[] = [];
     const meta: Record<string, unknown> = flags.debug ? { debug: { requests: debugRequests } } : {};
@@ -1154,8 +1154,8 @@ bitbucketPipelinesCommand
   .option("--debug", "Include redacted provider request metadata")
   .option("--bitbucket-workspace <workspace>")
   .option("--bitbucket-repo <repo>")
-  .option("--bitbucket-username <username>")
-  .option("--bitbucket-app-password <password>")
+  .option("--bitbucket-email <email>")
+  .option("--bitbucket-api-token <token>")
   .action(async (flags) => {
     const debugRequests: BitbucketDebugRequest[] = [];
     const meta: Record<string, unknown> = flags.debug ? { debug: { requests: debugRequests } } : {};
@@ -1199,8 +1199,8 @@ bitbucketPrCommand
   .option("--debug", "Include redacted provider request metadata")
   .option("--bitbucket-workspace <workspace>")
   .option("--bitbucket-repo <repo>")
-  .option("--bitbucket-username <username>")
-  .option("--bitbucket-app-password <password>")
+  .option("--bitbucket-email <email>")
+  .option("--bitbucket-api-token <token>")
   .action(async (flags) => {
     const debugRequests: BitbucketDebugRequest[] = [];
     const meta: Record<string, unknown> = flags.debug
@@ -1369,8 +1369,8 @@ bitbucketPrCommentsCommand
   .option("--debug", "Include redacted provider request metadata")
   .option("--bitbucket-workspace <workspace>")
   .option("--bitbucket-repo <repo>")
-  .option("--bitbucket-username <username>")
-  .option("--bitbucket-app-password <password>")
+  .option("--bitbucket-email <email>")
+  .option("--bitbucket-api-token <token>")
   .action(async (id: string | undefined, flags) => {
     const debugRequests: BitbucketDebugRequest[] = [];
     const meta: Record<string, unknown> = flags.debug
@@ -1581,8 +1581,8 @@ bitbucketPrCommand
   .option("--debug", "Include redacted provider request metadata")
   .option("--bitbucket-workspace <workspace>")
   .option("--bitbucket-repo <repo>")
-  .option("--bitbucket-username <username>")
-  .option("--bitbucket-app-password <password>")
+  .option("--bitbucket-email <email>")
+  .option("--bitbucket-api-token <token>")
   .action(async (id: string | undefined, flags) => {
     const debugRequests: BitbucketDebugRequest[] = [];
     const meta: Record<string, unknown> = flags.debug
@@ -1791,8 +1791,8 @@ bitbucketPrCommand
   .option("--debug", "Include redacted provider request metadata")
   .option("--bitbucket-workspace <workspace>")
   .option("--bitbucket-repo <repo>")
-  .option("--bitbucket-username <username>")
-  .option("--bitbucket-app-password <password>")
+  .option("--bitbucket-email <email>")
+  .option("--bitbucket-api-token <token>")
   .action(async (id: string | undefined, flags) => {
     const debugRequests: BitbucketDebugRequest[] = [];
     const meta: Record<string, unknown> = flags.debug
@@ -1979,8 +1979,8 @@ bitbucketPrCommand
   .option("--debug", "Include redacted provider request metadata")
   .option("--bitbucket-workspace <workspace>")
   .option("--bitbucket-repo <repo>")
-  .option("--bitbucket-username <username>")
-  .option("--bitbucket-app-password <password>")
+  .option("--bitbucket-email <email>")
+  .option("--bitbucket-api-token <token>")
   .action(async (id: string | undefined, flags) => {
     const debugRequests: BitbucketDebugRequest[] = [];
     const meta: Record<string, unknown> = flags.debug

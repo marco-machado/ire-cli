@@ -73,8 +73,8 @@ test("config inspect reports defaulted config fields", async () => {
       bitbucket: {
         workspace: { value: null, source: "default" },
         repo: { value: null, source: "default" },
-        username: { value: null, source: "default" },
-        appPassword: { value: null, source: "default" },
+        email: { value: null, source: "default" },
+        apiToken: { value: null, source: "default" },
       },
     },
   });
@@ -88,8 +88,8 @@ test("config inspect resolves process environment values and redacts secrets", a
       IRE_JIRA_API_TOKEN: "jira-secret",
       IRE_BITBUCKET_WORKSPACE: "example-workspace",
       IRE_BITBUCKET_REPO: "example-repo",
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
 
@@ -103,8 +103,8 @@ test("config inspect resolves process environment values and redacts secrets", a
     bitbucket: {
       workspace: { value: "example-workspace", source: "env" },
       repo: { value: "example-repo", source: "env" },
-      username: { value: "bb-user", source: "env" },
-      appPassword: { value: "<redacted>", source: "env" },
+      email: { value: "bb-user", source: "env" },
+      apiToken: { value: "<redacted>", source: "env" },
     },
   });
 });
@@ -160,8 +160,8 @@ test("config inspect respects flag env project and user config precedence", asyn
       bitbucket: {
         workspace: "user-workspace",
         repo: "user-repo",
-        username: "user-bb",
-        appPassword: "user-bb-secret",
+        email: "user-bb",
+        apiToken: "user-bb-secret",
       },
     }),
   );
@@ -181,7 +181,7 @@ test("config inspect respects flag env project and user config precedence", asyn
     join(projectDir, ".env"),
     [
       "IRE_JIRA_EMAIL=project-env-agent@example.test",
-      "IRE_BITBUCKET_USERNAME=project-env-bb",
+      "IRE_BITBUCKET_EMAIL=project-env-bb",
     ].join("\n"),
   );
 
@@ -191,7 +191,7 @@ test("config inspect respects flag env project and user config precedence", asyn
       "inspect",
       "--jira-email",
       "flag-agent@example.test",
-      "--bitbucket-app-password",
+      "--bitbucket-api-token",
       "flag-bb-secret",
     ],
     {
@@ -217,8 +217,8 @@ test("config inspect respects flag env project and user config precedence", asyn
     bitbucket: {
       workspace: { value: "env-workspace", source: "env" },
       repo: { value: "project-config-repo", source: "project-config" },
-      username: { value: "project-env-bb", source: "project-env" },
-      appPassword: { value: "<redacted>", source: "flag" },
+      email: { value: "project-env-bb", source: "project-env" },
+      apiToken: { value: "<redacted>", source: "flag" },
     },
   });
 });

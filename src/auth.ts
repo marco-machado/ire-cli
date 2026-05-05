@@ -264,13 +264,13 @@ async function checkBitbucketAuth(
   assertComplete("bitbucket", providerFields(config, "bitbucket"));
 
   const bitbucketWorkspace = config.bitbucket.workspace.value;
-  const bitbucketUsername = config.bitbucket.username.value;
-  const bitbucketAppPassword = config.bitbucket.appPassword.value;
+  const bitbucketEmail = config.bitbucket.email.value;
+  const bitbucketApiToken = config.bitbucket.apiToken.value;
 
   if (
     bitbucketWorkspace !== null &&
-    bitbucketUsername !== null &&
-    bitbucketAppPassword !== null
+    bitbucketEmail !== null &&
+    bitbucketApiToken !== null
   ) {
     const response = await fetchJson(
       "bitbucket",
@@ -279,8 +279,8 @@ async function checkBitbucketAuth(
         headers: {
           accept: "application/json",
           authorization: basicAuthorization(
-            bitbucketUsername,
-            bitbucketAppPassword,
+            bitbucketEmail,
+            bitbucketApiToken,
           ),
         },
       },
@@ -327,8 +327,8 @@ function providerFields(
 
   return [
     { name: "workspace", value: config.bitbucket.workspace.value },
-    { name: "username", value: config.bitbucket.username.value },
-    { name: "appPassword", value: config.bitbucket.appPassword.value },
+    { name: "email", value: config.bitbucket.email.value },
+    { name: "apiToken", value: config.bitbucket.apiToken.value },
   ];
 }
 

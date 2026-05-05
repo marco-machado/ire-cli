@@ -89,8 +89,8 @@ test("bitbucket pr files fetches changed files with explicit repo and pagination
   const result = await runIre(["bitbucket", "pr", "files", "42", "--repo", "workspace-one/repo-one"], {
     nodeArgs: ["--import", hookPath],
     env: {
-      IRE_BITBUCKET_USERNAME: "bb-user",
-      IRE_BITBUCKET_APP_PASSWORD: "bb-secret",
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
   const envelope = parseJson(result.stdout);
@@ -131,7 +131,7 @@ test("bitbucket pr files reuses config and Git remote repository resolution", as
   const fromConfig = await runIre(["bitbucket", "pr", "files", "7"], {
     cwd: configDir,
     nodeArgs: ["--import", hookPath],
-    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+    env: { IRE_BITBUCKET_EMAIL: "bb-user", IRE_BITBUCKET_API_TOKEN: "bb-secret" },
   });
   assert.equal(fromConfig.exitCode, 0);
   assert.deepEqual(parseJson(fromConfig.stdout).meta.bitbucket, { workspace: "config-workspace", repo: "config-repo" });
@@ -143,7 +143,7 @@ test("bitbucket pr files reuses config and Git remote repository resolution", as
   const fromRemote = await runIre(["bitbucket", "pr", "files", "8"], {
     cwd: remoteDir,
     nodeArgs: ["--import", hookPath],
-    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+    env: { IRE_BITBUCKET_EMAIL: "bb-user", IRE_BITBUCKET_API_TOKEN: "bb-secret" },
   });
   assert.equal(fromRemote.exitCode, 0);
   assert.deepEqual(parseJson(fromRemote.stdout).meta.bitbucket, { workspace: "remote-workspace", repo: "remote-repo" });
@@ -159,7 +159,7 @@ test("bitbucket pr files propagates limit and cursor and rejects invalid limits"
 
   const result = await runIre(["bitbucket", "pr", "files", "9", "--repo", "ws/repo", "--limit", "25", "--cursor", cursor], {
     nodeArgs: ["--import", cursorHookPath],
-    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+    env: { IRE_BITBUCKET_EMAIL: "bb-user", IRE_BITBUCKET_API_TOKEN: "bb-secret" },
   });
   assert.equal(result.exitCode, 0);
   assert.deepEqual(parseJson(result.stdout).data.pagination, { limit: 25, nextCursor: null, hasNextPage: false });
@@ -167,7 +167,7 @@ test("bitbucket pr files propagates limit and cursor and rejects invalid limits"
   const failHookPath = await writeFetchHook(`globalThis.fetch = async () => { throw new Error("network call attempted"); };`);
   const invalid = await runIre(["bitbucket", "pr", "files", "9", "--repo", "ws/repo", "--limit", "101"], {
     nodeArgs: ["--import", failHookPath],
-    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+    env: { IRE_BITBUCKET_EMAIL: "bb-user", IRE_BITBUCKET_API_TOKEN: "bb-secret" },
   });
   assert.equal(invalid.exitCode, 2);
   assert.equal(parseJson(invalid.stdout).error.code, "INVALID_LIMIT");
@@ -185,7 +185,7 @@ test("bitbucket pr files maps provider, not-found, network, repo, and validation
     const hookPath = await writeFetchHook(`globalThis.fetch = async () => Response.json({ message: "failed" }, { status: ${failure.status} });`);
     const result = await runIre(["bitbucket", "pr", "files", "12", "--repo", "ws/repo"], {
       nodeArgs: ["--import", hookPath],
-      env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+      env: { IRE_BITBUCKET_EMAIL: "bb-user", IRE_BITBUCKET_API_TOKEN: "bb-secret" },
     });
     assert.equal(result.exitCode, failure.exitCode);
     assert.equal(parseJson(result.stdout).error.code, failure.code);
@@ -194,7 +194,7 @@ test("bitbucket pr files maps provider, not-found, network, repo, and validation
   const networkHookPath = await writeFetchHook(`globalThis.fetch = async () => { throw new Error("offline"); };`);
   const network = await runIre(["bitbucket", "pr", "files", "13", "--repo", "ws/repo"], {
     nodeArgs: ["--import", networkHookPath],
-    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+    env: { IRE_BITBUCKET_EMAIL: "bb-user", IRE_BITBUCKET_API_TOKEN: "bb-secret" },
   });
   assert.equal(network.exitCode, 6);
   assert.equal(parseJson(network.stdout).error.code, "BITBUCKET_NETWORK_ERROR");
@@ -202,14 +202,14 @@ test("bitbucket pr files maps provider, not-found, network, repo, and validation
   const validationHookPath = await writeFetchHook(`globalThis.fetch = async () => Response.json({ values: [{ status: "modified", old: null, new: null }] });`);
   const validation = await runIre(["bitbucket", "pr", "files", "13", "--repo", "ws/repo"], {
     nodeArgs: ["--import", validationHookPath],
-    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+    env: { IRE_BITBUCKET_EMAIL: "bb-user", IRE_BITBUCKET_API_TOKEN: "bb-secret" },
   });
   assert.equal(validation.exitCode, 1);
   assert.equal(parseJson(validation.stdout).error.code, "INTERNAL_ERROR");
 
   const invalidRepo = await runIre(["bitbucket", "pr", "files", "13", "--repo", "not-a-repo"], {
     nodeArgs: ["--import", networkHookPath],
-    env: { IRE_BITBUCKET_USERNAME: "bb-user", IRE_BITBUCKET_APP_PASSWORD: "bb-secret" },
+    env: { IRE_BITBUCKET_EMAIL: "bb-user", IRE_BITBUCKET_API_TOKEN: "bb-secret" },
   });
   assert.equal(invalidRepo.exitCode, 2);
   assert.equal(parseJson(invalidRepo.stdout).error.code, "BITBUCKET_REPO_INVALID");
