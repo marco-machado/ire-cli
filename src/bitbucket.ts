@@ -26,6 +26,15 @@ type BitbucketPullRequestGetOptions = {
   debugRequests?: BitbucketDebugRequest[];
 };
 
+type BitbucketPullRequestListOptions = {
+  repo?: string;
+  limit?: number;
+  cursor?: string;
+  cwd?: string;
+  fetchImpl?: Fetch;
+  debugRequests?: BitbucketDebugRequest[];
+};
+
 export class BitbucketConfigurationError extends Error {
   readonly code = "AUTH_CONFIG_INCOMPLETE";
   readonly details: { provider: "bitbucket"; missing: string[] };
@@ -110,8 +119,11 @@ export class BitbucketNormalizedOutputError extends Error {
   readonly code = "INTERNAL_ERROR";
   readonly details: Array<{ code: string; message: string; path: string }>;
 
-  constructor(details: Array<{ code: string; message: string; path: string }>) {
-    super("Normalized Bitbucket pull request output failed validation");
+  constructor(
+    details: Array<{ code: string; message: string; path: string }>,
+    message = "Normalized Bitbucket pull request output failed validation",
+  ) {
+    super(message);
     this.details = details;
   }
 }
@@ -142,6 +154,40 @@ const normalizedPullRequestSchema = z
     reviewers: z.array(userSchema),
     created: z.iso.datetime(),
     updated: z.iso.datetime(),
+  })
+  .strict();
+
+const branchSchema = z
+  .object({
+    branch: z.string(),
+  })
+  .strict();
+
+const normalizedPullRequestSummarySchema = z
+  .object({
+    id: z.number().int(),
+    title: z.string(),
+    state: z.string(),
+    author: userSchema.nullable(),
+    source: branchSchema,
+    destination: branchSchema,
+    created: z.iso.datetime(),
+    updated: z.iso.datetime(),
+  })
+  .strict();
+
+const paginationSchema = z
+  .object({
+    limit: z.number().int().min(1).max(100),
+    nextCursor: z.string().nullable(),
+    hasNextPage: z.boolean(),
+  })
+  .strict();
+
+const normalizedPullRequestListSchema = z
+  .object({
+    prs: z.array(normalizedPullRequestSummarySchema),
+    pagination: paginationSchema,
   })
   .strict();
 
@@ -283,13 +329,21 @@ function userField(value: unknown): z.infer<typeof userSchema> | null {
   } as z.infer<typeof userSchema>;
 }
 
-function branchCommitField(value: unknown): z.infer<typeof branchCommitSchema> {
+function branchField(value: unknown): z.infer<typeof branchSchema> {
   const endpoint = asRecord(value);
   const branch = asRecord(endpoint?.branch);
-  const commit = asRecord(endpoint?.commit);
 
   return {
     branch: branch?.name,
+  } as z.infer<typeof branchSchema>;
+}
+
+function branchCommitField(value: unknown): z.infer<typeof branchCommitSchema> {
+  const endpoint = asRecord(value);
+  const commit = asRecord(endpoint?.commit);
+
+  return {
+    ...branchField(value),
     commit: commit?.hash,
   } as z.infer<typeof branchCommitSchema>;
 }
@@ -340,6 +394,49 @@ function normalizePullRequest(providerPullRequest: unknown): z.infer<typeof norm
   return parsedResult.data;
 }
 
+function normalizePullRequestSummary(providerPullRequest: unknown): z.infer<typeof normalizedPullRequestSummarySchema> {
+  const pullRequest = asRecord(providerPullRequest);
+
+  return {
+    id: pullRequest?.id,
+    title: pullRequest?.title,
+    state: pullRequest?.state,
+    author: userField(pullRequest?.author),
+    source: branchField(pullRequest?.source),
+    destination: branchField(pullRequest?.destination),
+    created: normalizeTimestamp(pullRequest?.created_on),
+    updated: normalizeTimestamp(pullRequest?.updated_on),
+  } as z.infer<typeof normalizedPullRequestSummarySchema>;
+}
+
+function normalizePullRequestList(providerPage: unknown, limit: number): z.infer<typeof normalizedPullRequestListSchema> {
+  const page = asRecord(providerPage);
+  const values = Array.isArray(page?.values) ? page.values : [];
+  const nextCursor = typeof page?.next === "string" ? page.next : null;
+  const normalized = {
+    prs: values.map(normalizePullRequestSummary),
+    pagination: {
+      limit,
+      nextCursor,
+      hasNextPage: nextCursor !== null,
+    },
+  };
+
+  const parsedResult = normalizedPullRequestListSchema.safeParse(normalized);
+  if (!parsedResult.success) {
+    throw new BitbucketNormalizedOutputError(
+      parsedResult.error.issues.map((issue) => ({
+        code: issue.code,
+        message: issue.message,
+        path: issue.path.join("."),
+      })),
+      "Normalized Bitbucket pull request list output failed validation",
+    );
+  }
+
+  return parsedResult.data;
+}
+
 async function readProviderJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
@@ -349,6 +446,77 @@ async function readProviderJson(response: Response): Promise<unknown> {
       response.status,
     );
   }
+}
+
+function pullRequestsUrl(repo: BitbucketRepoIdentity, limit: number, cursor?: string): string {
+  if (cursor !== undefined) {
+    return cursor;
+  }
+
+  const url = new URL(
+    `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(repo.workspace)}/${encodeURIComponent(repo.repo)}/pullrequests`,
+  );
+  url.searchParams.set("pagelen", String(limit));
+  return String(url);
+}
+
+export async function listBitbucketPullRequests(
+  config: ResolvedConfig,
+  options: BitbucketPullRequestListOptions = {},
+): Promise<{ data: unknown; repo: BitbucketRepoIdentity }> {
+  assertBitbucketConfigComplete(config);
+
+  const repo = resolveBitbucketRepo(config, {
+    repo: options.repo,
+    cwd: options.cwd,
+  });
+  const limit = options.limit ?? 50;
+  const url = pullRequestsUrl(repo, limit, options.cursor);
+  const startedAt = Date.now();
+  const fetchImpl = options.fetchImpl ?? fetch;
+  let response: Response;
+
+  try {
+    response = await fetchImpl(url, {
+      headers: {
+        accept: "application/json",
+        authorization: basicAuthorization(
+          config.bitbucket.username.value,
+          config.bitbucket.appPassword.value,
+        ),
+      },
+    });
+  } catch {
+    options.debugRequests?.push({
+      provider: "bitbucket",
+      method: "GET",
+      url,
+      latencyMs: Date.now() - startedAt,
+    });
+    throw new BitbucketNetworkError();
+  }
+
+  options.debugRequests?.push({
+    provider: "bitbucket",
+    method: "GET",
+    url,
+    status: response.status,
+    latencyMs: Date.now() - startedAt,
+  });
+
+  if (response.status === 401 || response.status === 403) {
+    throw new BitbucketAuthenticationError(response.status);
+  }
+
+  if (!response.ok) {
+    throw new BitbucketProviderError(
+      "Bitbucket provider request failed",
+      response.status,
+    );
+  }
+
+  const body = await readProviderJson(response);
+  return { data: normalizePullRequestList(body, limit), repo };
 }
 
 export async function getBitbucketPullRequest(
