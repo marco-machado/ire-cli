@@ -3,11 +3,14 @@ name: Publish to npm
 on:
   release:
     types: [published]
-  workflow_dispatch:
 
 permissions:
   contents: read
   id-token: write
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -28,6 +31,14 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Validate release tag matches package version
+        run: |
+          PACKAGE_VERSION="v$(node -p "require('./package.json').version")"
+          if [ "$PACKAGE_VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "Release tag $GITHUB_REF_NAME does not match package version $PACKAGE_VERSION"
+            exit 1
+          fi
 
       - name: Publish to npm
         run: npm publish --access public --provenance
