@@ -11,6 +11,16 @@ import {
   type ProviderName,
 } from "./auth.js";
 import { ConfigValidationError, resolveConfig } from "./config.js";
+import {
+  getJiraIssue,
+  JiraAuthenticationError,
+  JiraConfigurationError,
+  type JiraDebugRequest,
+  JiraIssueNotFoundError,
+  JiraNetworkError,
+  JiraNormalizedOutputError,
+  JiraProviderError,
+} from "./jira.js";
 
 type SuccessEnvelope = {
   success: true;
@@ -230,6 +240,173 @@ program
           message: "Unexpected internal error",
         },
         meta: {},
+      });
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("jira")
+  .description("Read Jira resources")
+  .command("issue")
+  .description("Read Jira issues")
+  .command("get")
+  .description("Fetch a Jira issue by explicit key")
+  .argument("[key]", "Jira issue key")
+  .option("--raw", "Return the provider-native Jira payload")
+  .option("--debug", "Include redacted provider request metadata")
+  .option("--jira-base-url <url>")
+  .option("--jira-email <email>")
+  .option("--jira-api-token <token>")
+  .action(async (key: string | undefined, flags) => {
+    const debugRequests: JiraDebugRequest[] = [];
+    const meta: Record<string, unknown> = flags.debug
+      ? { debug: { requests: debugRequests } }
+      : {};
+
+    try {
+      if (key === undefined) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: "MISSING_ARGUMENT",
+            message: "Jira issue key is required",
+            details: {
+              argument: "KEY",
+            },
+          },
+          meta: {},
+        });
+        process.exitCode = 2;
+        return;
+      }
+
+      const config = resolveConfig({ flags, redactSecrets: false });
+      const data = await getJiraIssue(config, key, {
+        raw: flags.raw,
+        debugRequests: flags.debug ? debugRequests : undefined,
+      });
+
+      writeEnvelope({
+        success: true,
+        schemaVersion: "1.0",
+        data,
+        meta,
+      });
+    } catch (error) {
+      if (error instanceof JiraConfigurationError) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+          },
+          meta,
+        });
+        process.exitCode = 2;
+        return;
+      }
+
+      if (error instanceof ConfigValidationError) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+          },
+          meta,
+        });
+        process.exitCode = 2;
+        return;
+      }
+
+      if (error instanceof JiraAuthenticationError) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+          },
+          meta,
+        });
+        process.exitCode = 3;
+        return;
+      }
+
+      if (error instanceof JiraIssueNotFoundError) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+          },
+          meta,
+        });
+        process.exitCode = 4;
+        return;
+      }
+
+      if (error instanceof JiraProviderError) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+          },
+          meta,
+        });
+        process.exitCode = 5;
+        return;
+      }
+
+      if (error instanceof JiraNetworkError) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: error.code,
+            message: error.message,
+          },
+          meta,
+        });
+        process.exitCode = 6;
+        return;
+      }
+
+      if (error instanceof JiraNormalizedOutputError) {
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+          },
+          meta,
+        });
+        process.exitCode = 1;
+        return;
+      }
+
+      writeEnvelope({
+        success: false,
+        schemaVersion: "1.0",
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Unexpected internal error",
+        },
+        meta,
       });
       process.exitCode = 1;
     }

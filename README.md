@@ -108,10 +108,18 @@ Profiles are not part of v1.
 
 ## v1 command surface
 
-Planned Jira commands:
+Available Jira commands:
 
 ```text
 ire jira issue get KEY
+```
+
+Use `--raw` to return the provider-native Jira payload inside the standard
+success envelope. Use `--debug` to include redacted request metadata.
+
+Planned Jira commands:
+
+```text
 ire jira issue search --jql "project = ABC ORDER BY updated DESC"
 ire jira issue comments list KEY
 ```
