@@ -40,4 +40,4 @@ jobs:
           fi
 
       - name: Publish to npm
-        run: npx --yes npm@11.11.0 publish --access public --provenance
+        run: npx --yes npm@11.11.0 publish --access public
