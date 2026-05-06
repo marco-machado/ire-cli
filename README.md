@@ -21,6 +21,20 @@ ire --help
 
 `ire-cli` requires Node.js `>=22`.
 
+## Agent skill
+
+Install the `use-ire-cli` skill for agents that support [Vercel Skills](https://github.com/vercel-labs/skills):
+
+```sh
+npx skills add https://github.com/marco-machado/ire-cli --skill use-ire-cli
+```
+
+Or install directly from the skill path:
+
+```sh
+npx skills add https://github.com/marco-machado/ire-cli/tree/main/skills/use-ire-cli
+```
+
 ## Design goals
 
 - Provide thin, composable Jira and Bitbucket primitives.
