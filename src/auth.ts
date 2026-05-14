@@ -14,7 +14,7 @@ export type AuthDebugRequest = {
   latencyMs: number;
 };
 
-type AuthCheckOptions = {
+export type AuthCheckOptions = {
   fetchImpl?: Fetch;
   debugRequests?: AuthDebugRequest[];
 };

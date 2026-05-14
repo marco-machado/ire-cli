@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { z } from "zod";
+import { checkProviderAuth } from "./auth.js";
 import type { ResolvedConfig } from "./config.js";
 import {
   IreAmbiguousError,
@@ -10,6 +11,7 @@ import {
   IreNotFoundError,
   IreProviderError,
 } from "./errors.js";
+import type { Provider } from "./provider.js";
 
 type Fetch = typeof fetch;
 type JsonRecord = Record<string, unknown>;
@@ -1482,3 +1484,13 @@ export async function getBitbucketPullRequest(
   const body = await readProviderJson(response);
   return { data: options.raw ? body : normalizePullRequest(body), repo };
 }
+
+export const bitbucketProvider: Provider = {
+  name: "bitbucket",
+  authCheck: (config, options) => checkProviderAuth(config, "bitbucket", options),
+  configSlice: (config) => [
+    { name: "workspace", value: config.bitbucket.workspace.value },
+    { name: "email", value: config.bitbucket.email.value },
+    { name: "apiToken", value: config.bitbucket.apiToken.value },
+  ],
+};

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { checkProviderAuth } from "./auth.js";
 import type { ResolvedConfig } from "./config.js";
 import {
   IreAuthenticationError,
@@ -8,6 +9,7 @@ import {
   IreNotFoundError,
   IreProviderError,
 } from "./errors.js";
+import type { Provider } from "./provider.js";
 
 type Fetch = typeof fetch;
 
@@ -694,3 +696,13 @@ export async function getJiraIssue(
 
   return normalizeJiraIssue(body);
 }
+
+export const jiraProvider: Provider = {
+  name: "jira",
+  authCheck: (config, options) => checkProviderAuth(config, "jira", options),
+  configSlice: (config) => [
+    { name: "baseUrl", value: config.jira.baseUrl.value },
+    { name: "email", value: config.jira.email.value },
+    { name: "apiToken", value: config.jira.apiToken.value },
+  ],
+};

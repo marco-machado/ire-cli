@@ -7,10 +7,9 @@ import {
   type AuthDebugRequest,
   type AuthCheckResult,
   checkConfiguredProviderAuth,
-  checkProviderAuth,
-  type ProviderName,
 } from "./auth.js";
 import {
+  bitbucketProvider,
   getBitbucketPipeline,
   getBitbucketPipelineLog,
   getBitbucketPullRequest,
@@ -36,6 +35,7 @@ import {
 import { ConfigValidationError, resolveConfig } from "./config.js";
 import {
   getJiraIssue,
+  jiraProvider,
   listJiraIssueComments,
   searchJiraIssues,
   JiraAuthenticationError,
@@ -98,9 +98,7 @@ function authFailureExitCode(data: AuthCheckResult | AuthCheckResult[]): number 
   return Math.max(...exitCodes);
 }
 
-function isProviderName(provider: string): provider is ProviderName {
-  return provider === "jira" || provider === "bitbucket";
-}
+const registeredProviders = [jiraProvider, bitbucketProvider];
 
 const program = new Command();
 
@@ -175,7 +173,12 @@ program
   .option("--bitbucket-api-token <token>")
   .action(async (provider: string | undefined, flags) => {
     try {
-      if (provider !== undefined && !isProviderName(provider)) {
+      const knownProvider =
+        provider !== undefined
+          ? registeredProviders.find((p) => p.name === provider)
+          : undefined;
+
+      if (provider !== undefined && knownProvider === undefined) {
         writeEnvelope({
           success: false,
           schemaVersion: "1.0",
@@ -183,7 +186,7 @@ program
             code: "INVALID_PROVIDER",
             message: `Unknown auth provider: ${provider}`,
             details: {
-              allowed: ["jira", "bitbucket"],
+              allowed: registeredProviders.map((p) => p.name),
             },
           },
           meta: {},
@@ -198,9 +201,9 @@ program
         ? { debugRequests }
         : {};
       const data =
-        provider === undefined
+        knownProvider === undefined
           ? await checkConfiguredProviderAuth(config, authOptions)
-          : await checkProviderAuth(config, provider, authOptions);
+          : await knownProvider.authCheck(config, authOptions);
       const meta = flags.debug ? { debug: { requests: debugRequests } } : {};
 
       if (hasAuthFailures(data)) {
