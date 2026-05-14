@@ -1,6 +1,15 @@
 import { execFileSync } from "node:child_process";
 import { z } from "zod";
 import type { ResolvedConfig } from "./config.js";
+import {
+  IreAmbiguousError,
+  IreAuthenticationError,
+  IreConfigurationError,
+  IreNetworkError,
+  IreNormalizedOutputError,
+  IreNotFoundError,
+  IreProviderError,
+} from "./errors.js";
 
 type Fetch = typeof fetch;
 type JsonRecord = Record<string, unknown>;
@@ -101,7 +110,7 @@ type BitbucketPipelineLogOptions = {
   debugRequests?: BitbucketDebugRequest[];
 };
 
-export class BitbucketConfigurationError extends Error {
+export class BitbucketConfigurationError extends IreConfigurationError {
   readonly code = "AUTH_CONFIG_INCOMPLETE";
   readonly details: { provider: "bitbucket"; missing: string[] };
 
@@ -111,7 +120,7 @@ export class BitbucketConfigurationError extends Error {
   }
 }
 
-export class BitbucketRepoMissingError extends Error {
+export class BitbucketRepoMissingError extends IreConfigurationError {
   readonly code = "BITBUCKET_REPO_MISSING";
   readonly details = {
     precedence: ["--repo", "config", "git-remote"],
@@ -123,7 +132,7 @@ export class BitbucketRepoMissingError extends Error {
   }
 }
 
-export class BitbucketRepoAmbiguousError extends Error {
+export class BitbucketRepoAmbiguousError extends IreAmbiguousError {
   readonly code = "BITBUCKET_REPO_AMBIGUOUS";
   readonly details: { remotes: BitbucketRepoIdentity[] };
 
@@ -133,7 +142,7 @@ export class BitbucketRepoAmbiguousError extends Error {
   }
 }
 
-export class BitbucketRepoInvalidError extends Error {
+export class BitbucketRepoInvalidError extends IreConfigurationError {
   readonly code = "BITBUCKET_REPO_INVALID";
   readonly details: { repo: string; expected: "workspace/repo" };
 
@@ -143,7 +152,7 @@ export class BitbucketRepoInvalidError extends Error {
   }
 }
 
-export class BitbucketPullRequestNotFoundError extends Error {
+export class BitbucketPullRequestNotFoundError extends IreNotFoundError {
   readonly code = "BITBUCKET_PR_NOT_FOUND";
   readonly details: { id: number; repo: BitbucketRepoIdentity; status: 404 };
 
@@ -153,7 +162,7 @@ export class BitbucketPullRequestNotFoundError extends Error {
   }
 }
 
-export class BitbucketPipelineNotFoundError extends Error {
+export class BitbucketPipelineNotFoundError extends IreNotFoundError {
   readonly code = "BITBUCKET_PIPELINE_NOT_FOUND";
   readonly details: { repo: BitbucketRepoIdentity; branch?: string | null; uuid?: string; stepUuid?: string; status?: 404 };
 
@@ -166,7 +175,7 @@ export class BitbucketPipelineNotFoundError extends Error {
   }
 }
 
-export class BitbucketAuthenticationError extends Error {
+export class BitbucketAuthenticationError extends IreAuthenticationError {
   readonly code = "BITBUCKET_AUTH_FAILED";
   readonly details: { status: 401 | 403 };
 
@@ -176,7 +185,7 @@ export class BitbucketAuthenticationError extends Error {
   }
 }
 
-export class BitbucketProviderError extends Error {
+export class BitbucketProviderError extends IreProviderError {
   readonly code = "BITBUCKET_PROVIDER_ERROR";
   readonly details: { status?: number };
 
@@ -186,7 +195,7 @@ export class BitbucketProviderError extends Error {
   }
 }
 
-export class BitbucketNetworkError extends Error {
+export class BitbucketNetworkError extends IreNetworkError {
   readonly code = "BITBUCKET_NETWORK_ERROR";
 
   constructor() {
@@ -194,7 +203,7 @@ export class BitbucketNetworkError extends Error {
   }
 }
 
-export class BitbucketNormalizedOutputError extends Error {
+export class BitbucketNormalizedOutputError extends IreNormalizedOutputError {
   readonly code = "INTERNAL_ERROR";
   readonly details: Array<{ code: string; message: string; path: string }>;
 
