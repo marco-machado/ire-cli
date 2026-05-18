@@ -60,9 +60,9 @@ A Jira issue key passed directly by the caller. v1 requires explicit Jira issue 
 
 Bitbucket workspace/repo resolution from the local Git remote when no explicit repo or config default is available and the result is unambiguous.
 
-### Read-only v1
+### Read-only
 
-The first version of `ire-cli` only performs read operations. Mutating commands are intentionally excluded, while the command namespace leaves room for future write commands.
+`ire-cli` is the Immutable Read Engine: it never writes. Read operations are the only operations. Mutating commands are permanently excluded — this is a hard invariant, not a v1 deferral.
 
 ### Debug metadata
 

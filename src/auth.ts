@@ -1,4 +1,5 @@
 import type { ResolvedConfig } from "./config.js";
+import { IreConfigurationError } from "./errors.js";
 
 export type ProviderName = "jira" | "bitbucket";
 
@@ -14,7 +15,7 @@ export type AuthDebugRequest = {
   latencyMs: number;
 };
 
-type AuthCheckOptions = {
+export type AuthCheckOptions = {
   fetchImpl?: Fetch;
   debugRequests?: AuthDebugRequest[];
 };
@@ -42,7 +43,7 @@ type ProviderField = {
   value: string | null;
 };
 
-export class AuthConfigurationError extends Error {
+export class AuthConfigurationError extends IreConfigurationError {
   readonly code = "AUTH_CONFIG_INCOMPLETE";
   readonly details: {
     provider: ProviderName;
@@ -55,7 +56,7 @@ export class AuthConfigurationError extends Error {
   }
 }
 
-export class AuthConfigurationMissingError extends Error {
+export class AuthConfigurationMissingError extends IreConfigurationError {
   readonly code = "AUTH_CONFIG_MISSING";
   readonly details: {
     providers: ProviderName[];

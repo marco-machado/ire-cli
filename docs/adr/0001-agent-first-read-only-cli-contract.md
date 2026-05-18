@@ -23,7 +23,7 @@ ire jira ...
 ire bitbucket ...
 ```
 
-v1 is read-only. Mutating commands are out of scope, but the command tree should not prevent future write namespaces or verbs.
+ire-cli is the Immutable Read Engine: it never writes. Mutating commands are permanently excluded — this is a hard invariant, not a v1 deferral. The command tree must not include write namespaces or verbs.
 
 ### Providers
 
@@ -203,4 +203,4 @@ Agents get a predictable, machine-readable interface that is easy to compose and
 
 The project deliberately delays human-first conveniences such as prompts, spinners, tables, OAuth login, credential storage, and high-level workflows.
 
-The read-only v1 scope limits risk while still supporting the primary agent loop: inspect Jira context, inspect Bitbucket PRs, and diagnose Bitbucket Pipelines failures.
+The read-only constraint limits risk while supporting the primary agent loop: inspect Jira context, inspect Bitbucket PRs, and diagnose Bitbucket Pipelines failures.

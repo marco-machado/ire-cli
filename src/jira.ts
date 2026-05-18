@@ -1,5 +1,15 @@
 import { z } from "zod";
+import { checkProviderAuth } from "./auth.js";
 import type { ResolvedConfig } from "./config.js";
+import {
+  IreAuthenticationError,
+  IreConfigurationError,
+  IreNetworkError,
+  IreNormalizedOutputError,
+  IreNotFoundError,
+  IreProviderError,
+} from "./errors.js";
+import type { Provider } from "./provider.js";
 
 type Fetch = typeof fetch;
 
@@ -35,7 +45,7 @@ type JiraIssueCommentsListOptions = {
   debugRequests?: JiraDebugRequest[];
 };
 
-export class JiraConfigurationError extends Error {
+export class JiraConfigurationError extends IreConfigurationError {
   readonly code = "AUTH_CONFIG_INCOMPLETE";
   readonly details: {
     provider: "jira";
@@ -48,7 +58,7 @@ export class JiraConfigurationError extends Error {
   }
 }
 
-export class JiraIssueNotFoundError extends Error {
+export class JiraIssueNotFoundError extends IreNotFoundError {
   readonly code = "JIRA_ISSUE_NOT_FOUND";
   readonly details: {
     key: string;
@@ -61,7 +71,7 @@ export class JiraIssueNotFoundError extends Error {
   }
 }
 
-export class JiraAuthenticationError extends Error {
+export class JiraAuthenticationError extends IreAuthenticationError {
   readonly code = "JIRA_AUTH_FAILED";
   readonly details: {
     status: 401 | 403;
@@ -73,7 +83,7 @@ export class JiraAuthenticationError extends Error {
   }
 }
 
-export class JiraProviderError extends Error {
+export class JiraProviderError extends IreProviderError {
   readonly code = "JIRA_PROVIDER_ERROR";
   readonly details: {
     status?: number;
@@ -85,7 +95,7 @@ export class JiraProviderError extends Error {
   }
 }
 
-export class JiraNetworkError extends Error {
+export class JiraNetworkError extends IreNetworkError {
   readonly code = "JIRA_NETWORK_ERROR";
 
   constructor() {
@@ -93,7 +103,7 @@ export class JiraNetworkError extends Error {
   }
 }
 
-export class JiraNormalizedOutputError extends Error {
+export class JiraNormalizedOutputError extends IreNormalizedOutputError {
   readonly code = "INTERNAL_ERROR";
   readonly details: Array<{ code: string; message: string; path: string }>;
 
@@ -686,3 +696,13 @@ export async function getJiraIssue(
 
   return normalizeJiraIssue(body);
 }
+
+export const jiraProvider: Provider = {
+  name: "jira",
+  authCheck: (config, options) => checkProviderAuth(config, "jira", options),
+  configSlice: (config) => [
+    { name: "baseUrl", value: config.jira.baseUrl.value },
+    { name: "email", value: config.jira.email.value },
+    { name: "apiToken", value: config.jira.apiToken.value },
+  ],
+};
