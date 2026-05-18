@@ -158,7 +158,8 @@ export function registerJiraCommands(program: Command): void {
         : {};
 
       try {
-        if (flags.jql === undefined) {
+        const jql = typeof flags.jql === "string" ? flags.jql.trim() : undefined;
+        if (jql === undefined || jql.length === 0) {
           writeEnvelope({
             success: false,
             schemaVersion: "1.0",
@@ -196,7 +197,7 @@ export function registerJiraCommands(program: Command): void {
 
         const config = resolveConfig({ flags, redactSecrets: false });
         const data = await searchJiraIssues(config, {
-          jql: flags.jql,
+          jql,
           limit,
           cursor: flags.cursor,
           debugRequests: flags.debug ? debugRequests : undefined,
