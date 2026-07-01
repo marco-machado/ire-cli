@@ -220,7 +220,7 @@ export class BitbucketNormalizedOutputError extends IreNormalizedOutputError {
 
 const userSchema = z
   .object({
-    accountId: z.string(),
+    accountId: z.string().nullable(),
     displayName: z.string(),
   })
   .strict();
@@ -512,7 +512,7 @@ function userField(value: unknown): z.infer<typeof userSchema> | null {
   }
 
   return {
-    accountId: user.account_id,
+    accountId: typeof user.account_id === "string" ? user.account_id : null,
     displayName: user.display_name,
   } as z.infer<typeof userSchema>;
 }

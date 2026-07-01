@@ -143,6 +143,42 @@ test("bitbucket pr comments list fetches an explicit repo and emits normalized p
   });
 });
 
+test("bitbucket pr comments list normalizes an author with no account_id to a null accountId", async () => {
+  const hookPath = await writeFetchHook(`
+    globalThis.fetch = async () => {
+      return Response.json({
+        values: [{
+          id: 1002,
+          user: {
+            display_name: "Former user",
+            type: "user",
+            uuid: "{11111111-1111-1111-1111-111111111111}"
+          },
+          content: { raw: "Left before account_id was assigned." },
+          deleted: false,
+          inline: null,
+          created_on: "2026-05-04T12:34:56.000Z",
+          updated_on: "2026-05-04T13:45:01.000Z"
+        }]
+      });
+    };
+  `);
+
+  const result = await runIre(["bitbucket", "pr", "comments", "list", "42", "--repo", "workspace-one/repo-one"], {
+    nodeArgs: ["--import", hookPath],
+    env: bitbucketEnv,
+  });
+  const envelope = parseJson(result.stdout);
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(envelope.success, true);
+  assert.deepEqual(envelope.data.comments[0].author, {
+    accountId: null,
+    displayName: "Former user",
+  });
+});
+
 test("bitbucket pr comments list reuses repository resolution from config and Git remote", async () => {
   const hookPath = await writeFetchHook(`
     globalThis.fetch = async (input) => {
