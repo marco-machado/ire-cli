@@ -186,7 +186,7 @@ Bitbucket repository identity can be provided explicitly via `--repo workspace/r
 Supported options:
 
 - `ire bitbucket pr get`: `--repo`, `--raw`, `--debug`, Bitbucket config flags.
-- `ire bitbucket pr list`: `--repo`, `--limit`, `--cursor`, `--debug`, Bitbucket config flags.
+- `ire bitbucket pr list`: `--repo`, `--limit`, `--cursor`, `--state`, `--include-drafts`, `--debug`, Bitbucket config flags. `--state` takes a comma-separated subset of `OPEN`, `MERGED`, `DECLINED`, `SUPERSEDED`; `--include-drafts` opts draft PRs (hidden by default) into the results. Each PR summary includes a `draft` boolean.
 - `ire bitbucket pr comments list`: `--repo`, `--limit`, `--cursor`, `--debug`, Bitbucket config flags.
 - `ire bitbucket pr files`: `--repo`, `--limit`, `--cursor`, `--debug`, Bitbucket config flags.
 - `ire bitbucket pr diff`: `--repo`, `--debug`, Bitbucket config flags.

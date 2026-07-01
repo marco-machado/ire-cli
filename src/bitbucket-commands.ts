@@ -319,6 +319,8 @@ export function registerBitbucketCommands(program: Command): void {
     .option("--repo <repo>", "Bitbucket repository identity as workspace/repo")
     .option("--limit <limit>")
     .option("--cursor <cursor>")
+    .option("--state <state>", "Comma-separated PR states: OPEN, MERGED, DECLINED, SUPERSEDED")
+    .option("--include-drafts", "Include draft pull requests")
     .option("--debug", "Include redacted provider request metadata")
     .option("--bitbucket-workspace <workspace>")
     .option("--bitbucket-repo <repo>")
@@ -346,11 +348,37 @@ export function registerBitbucketCommands(program: Command): void {
           return;
         }
 
+        const allowedStates = ["OPEN", "MERGED", "DECLINED", "SUPERSEDED"];
+        let states: string[] | undefined;
+        if (flags.state !== undefined) {
+          states = String(flags.state)
+            .split(",")
+            .map((value) => value.trim().toUpperCase())
+            .filter((value) => value.length > 0);
+          const invalid = states.filter((value) => !allowedStates.includes(value));
+          if (invalid.length > 0) {
+            writeEnvelope({
+              success: false,
+              schemaVersion: "1.0",
+              error: {
+                code: "INVALID_STATE",
+                message: "Bitbucket pull request state must be one of OPEN, MERGED, DECLINED, SUPERSEDED",
+                details: { state: flags.state, invalid, allowed: allowedStates },
+              },
+              meta: {},
+            });
+            process.exitCode = 2;
+            return;
+          }
+        }
+
         const config = resolveConfig({ flags, redactSecrets: false });
         const result = await listBitbucketPullRequests(config, {
           repo: flags.repo,
           limit,
           cursor: flags.cursor,
+          state: states,
+          includeDrafts: flags.includeDrafts,
           debugRequests: flags.debug ? debugRequests : undefined,
         });
 
