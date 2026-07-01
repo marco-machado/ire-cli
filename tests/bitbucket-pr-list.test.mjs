@@ -216,14 +216,12 @@ test("bitbucket pr list appends state query params for --state", async () => {
   assert.equal(parseJson(result.stdout).success, true);
 });
 
-test("bitbucket pr list appends a draft query filter for --include-drafts", async () => {
-  const expectedUrl =
-    "https://api.bitbucket.org/2.0/repositories/ws/repo/pullrequests?pagelen=50&q=draft%3Dtrue+OR+draft%3Dfalse";
+test("bitbucket pr list constrains --include-drafts to OPEN by default", async () => {
   const hookPath = await writeFetchHook(`
     globalThis.fetch = async (input) => {
-      const url = String(input);
-      if (url !== ${JSON.stringify(expectedUrl)}) {
-        return Response.json({ url }, { status: 500 });
+      const q = new URL(String(input)).searchParams.get("q");
+      if (q !== '(state="OPEN") AND (draft=true OR draft=false)') {
+        return Response.json({ q }, { status: 500 });
       }
       return Response.json({ values: [] });
     };
@@ -236,6 +234,33 @@ test("bitbucket pr list appends a draft query filter for --include-drafts", asyn
       IRE_BITBUCKET_API_TOKEN: "bb-secret",
     },
   });
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(parseJson(result.stdout).success, true);
+});
+
+test("bitbucket pr list folds --state into the draft query for --include-drafts", async () => {
+  const hookPath = await writeFetchHook(`
+    globalThis.fetch = async (input) => {
+      const params = new URL(String(input)).searchParams;
+      const q = params.get("q");
+      if (params.has("state") || q !== '(state="OPEN" OR state="MERGED") AND (draft=true OR draft=false)') {
+        return Response.json({ q }, { status: 500 });
+      }
+      return Response.json({ values: [] });
+    };
+  `);
+
+  const result = await runIre(
+    ["bitbucket", "pr", "list", "--repo", "ws/repo", "--state", "OPEN,MERGED", "--include-drafts"],
+    {
+      nodeArgs: ["--import", hookPath],
+      env: {
+        IRE_BITBUCKET_EMAIL: "bb-user",
+        IRE_BITBUCKET_API_TOKEN: "bb-secret",
+      },
+    },
+  );
 
   assert.equal(result.exitCode, 0);
   assert.equal(parseJson(result.stdout).success, true);

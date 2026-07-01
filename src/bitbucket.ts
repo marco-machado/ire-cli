@@ -903,11 +903,17 @@ function pullRequestsUrl(
     `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(repo.workspace)}/${encodeURIComponent(repo.repo)}/pullrequests`,
   );
   url.searchParams.set("pagelen", String(limit));
-  for (const state of states ?? []) {
-    url.searchParams.append("state", state);
-  }
   if (includeDrafts) {
-    url.searchParams.set("q", "draft=true OR draft=false");
+    // A `q` filter disables Bitbucket's implicit `state=OPEN` default and its
+    // implicit draft hiding, so the state constraint and both draft values must
+    // be spelled out here or the result broadens to every state.
+    const effectiveStates = states && states.length > 0 ? states : ["OPEN"];
+    const statePredicate = effectiveStates.map((state) => `state="${state}"`).join(" OR ");
+    url.searchParams.set("q", `(${statePredicate}) AND (draft=true OR draft=false)`);
+  } else {
+    for (const state of states ?? []) {
+      url.searchParams.append("state", state);
+    }
   }
   return String(url);
 }
