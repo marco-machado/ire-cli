@@ -175,7 +175,7 @@ Jira config flags are:
 
 ```text
 ire bitbucket pr get ID [--repo workspace/repo]
-ire bitbucket pr list [--repo workspace/repo]
+ire bitbucket pr list [--repo workspace/repo] [--state OPEN,MERGED] [--include-drafts]
 ire bitbucket pr comments list ID [--repo workspace/repo]
 ire bitbucket pr files ID [--repo workspace/repo]
 ire bitbucket pr diff ID [--repo workspace/repo]
