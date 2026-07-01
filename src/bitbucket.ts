@@ -41,6 +41,8 @@ type BitbucketPullRequestListOptions = {
   repo?: string;
   limit?: number;
   cursor?: string;
+  state?: string[];
+  includeDrafts?: boolean;
   cwd?: string;
   fetchImpl?: Fetch;
   debugRequests?: BitbucketDebugRequest[];
@@ -258,6 +260,7 @@ const normalizedPullRequestSummarySchema = z
     id: z.number().int(),
     title: z.string(),
     state: z.string(),
+    draft: z.boolean(),
     author: userSchema.nullable(),
     source: branchSchema,
     destination: branchSchema,
@@ -589,6 +592,7 @@ function normalizePullRequestSummary(providerPullRequest: unknown): z.infer<type
     id: pullRequest?.id,
     title: pullRequest?.title,
     state: pullRequest?.state,
+    draft: pullRequest?.draft === true,
     author: userField(pullRequest?.author),
     source: branchField(pullRequest?.source),
     destination: branchField(pullRequest?.destination),
@@ -884,7 +888,13 @@ async function readProviderJson(response: Response): Promise<unknown> {
   }
 }
 
-function pullRequestsUrl(repo: BitbucketRepoIdentity, limit: number, cursor?: string): string {
+function pullRequestsUrl(
+  repo: BitbucketRepoIdentity,
+  limit: number,
+  cursor?: string,
+  states?: string[],
+  includeDrafts?: boolean,
+): string {
   if (cursor !== undefined) {
     return cursor;
   }
@@ -893,6 +903,18 @@ function pullRequestsUrl(repo: BitbucketRepoIdentity, limit: number, cursor?: st
     `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(repo.workspace)}/${encodeURIComponent(repo.repo)}/pullrequests`,
   );
   url.searchParams.set("pagelen", String(limit));
+  if (includeDrafts) {
+    // A `q` filter disables Bitbucket's implicit `state=OPEN` default and its
+    // implicit draft hiding, so the state constraint and both draft values must
+    // be spelled out here or the result broadens to every state.
+    const effectiveStates = states && states.length > 0 ? states : ["OPEN"];
+    const statePredicate = effectiveStates.map((state) => `state="${state}"`).join(" OR ");
+    url.searchParams.set("q", `(${statePredicate}) AND (draft=true OR draft=false)`);
+  } else {
+    for (const state of states ?? []) {
+      url.searchParams.append("state", state);
+    }
+  }
   return String(url);
 }
 
@@ -1183,7 +1205,7 @@ export async function listBitbucketPullRequests(
     cwd: options.cwd,
   });
   const limit = options.limit ?? 50;
-  const url = pullRequestsUrl(repo, limit, options.cursor);
+  const url = pullRequestsUrl(repo, limit, options.cursor, options.state, options.includeDrafts);
   const startedAt = Date.now();
   const fetchImpl = options.fetchImpl ?? fetch;
   let response: Response;

@@ -175,7 +175,7 @@ Jira config flags are:
 
 ```text
 ire bitbucket pr get ID [--repo workspace/repo]
-ire bitbucket pr list [--repo workspace/repo]
+ire bitbucket pr list [--repo workspace/repo] [--state OPEN,MERGED] [--include-drafts]
 ire bitbucket pr comments list ID [--repo workspace/repo]
 ire bitbucket pr files ID [--repo workspace/repo]
 ire bitbucket pr diff ID [--repo workspace/repo]
@@ -186,7 +186,7 @@ Bitbucket repository identity can be provided explicitly via `--repo workspace/r
 Supported options:
 
 - `ire bitbucket pr get`: `--repo`, `--raw`, `--debug`, Bitbucket config flags.
-- `ire bitbucket pr list`: `--repo`, `--limit`, `--cursor`, `--debug`, Bitbucket config flags.
+- `ire bitbucket pr list`: `--repo`, `--limit`, `--cursor`, `--state`, `--include-drafts`, `--debug`, Bitbucket config flags. `--state` takes a comma-separated subset of `OPEN`, `MERGED`, `DECLINED`, `SUPERSEDED`; `--include-drafts` opts draft PRs (hidden by default) into the results. Each PR summary includes a `draft` boolean.
 - `ire bitbucket pr comments list`: `--repo`, `--limit`, `--cursor`, `--debug`, Bitbucket config flags.
 - `ire bitbucket pr files`: `--repo`, `--limit`, `--cursor`, `--debug`, Bitbucket config flags.
 - `ire bitbucket pr diff`: `--repo`, `--debug`, Bitbucket config flags.

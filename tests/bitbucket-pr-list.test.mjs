@@ -126,6 +126,7 @@ test("bitbucket pr list fetches an explicit repo and emits normalized PR summari
       id: 42,
       title: "Add PR list primitive",
       state: "OPEN",
+      draft: false,
       author: { accountId: "author-1", displayName: "Author One" },
       source: { branch: "feature/pr-list" },
       destination: { branch: "main" },
@@ -144,6 +145,171 @@ test("bitbucket pr list fetches an explicit repo and emits normalized PR summari
       repo: "repo-one",
     },
   });
+});
+
+test("bitbucket pr list surfaces the draft flag on each PR summary", async () => {
+  const hookPath = await writeFetchHook(`
+    globalThis.fetch = async () => Response.json({
+      values: [
+        {
+          id: 7,
+          title: "Draft work",
+          state: "OPEN",
+          draft: true,
+          author: { account_id: "a", display_name: "A" },
+          source: { branch: { name: "feature/draft" } },
+          destination: { branch: { name: "main" } },
+          created_on: "2026-05-04T12:00:00.000Z",
+          updated_on: "2026-05-04T12:30:00.000Z"
+        },
+        {
+          id: 8,
+          title: "Ready work",
+          state: "OPEN",
+          draft: false,
+          author: { account_id: "b", display_name: "B" },
+          source: { branch: { name: "feature/ready" } },
+          destination: { branch: { name: "main" } },
+          created_on: "2026-05-04T13:00:00.000Z",
+          updated_on: "2026-05-04T13:30:00.000Z"
+        }
+      ]
+    });
+  `);
+
+  const result = await runIre(["bitbucket", "pr", "list", "--repo", "ws/repo"], {
+    nodeArgs: ["--import", hookPath],
+    env: {
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
+    },
+  });
+  const envelope = parseJson(result.stdout);
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(envelope.data.prs[0].draft, true);
+  assert.equal(envelope.data.prs[1].draft, false);
+});
+
+test("bitbucket pr list appends state query params for --state", async () => {
+  const expectedUrl =
+    "https://api.bitbucket.org/2.0/repositories/ws/repo/pullrequests?pagelen=50&state=OPEN&state=MERGED";
+  const hookPath = await writeFetchHook(`
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url !== ${JSON.stringify(expectedUrl)}) {
+        return Response.json({ url }, { status: 500 });
+      }
+      return Response.json({ values: [] });
+    };
+  `);
+
+  const result = await runIre(["bitbucket", "pr", "list", "--repo", "ws/repo", "--state", "open,Merged"], {
+    nodeArgs: ["--import", hookPath],
+    env: {
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
+    },
+  });
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(parseJson(result.stdout).success, true);
+});
+
+test("bitbucket pr list constrains --include-drafts to OPEN by default", async () => {
+  const hookPath = await writeFetchHook(`
+    globalThis.fetch = async (input) => {
+      const q = new URL(String(input)).searchParams.get("q");
+      if (q !== '(state="OPEN") AND (draft=true OR draft=false)') {
+        return Response.json({ q }, { status: 500 });
+      }
+      return Response.json({ values: [] });
+    };
+  `);
+
+  const result = await runIre(["bitbucket", "pr", "list", "--repo", "ws/repo", "--include-drafts"], {
+    nodeArgs: ["--import", hookPath],
+    env: {
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
+    },
+  });
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(parseJson(result.stdout).success, true);
+});
+
+test("bitbucket pr list folds --state into the draft query for --include-drafts", async () => {
+  const hookPath = await writeFetchHook(`
+    globalThis.fetch = async (input) => {
+      const params = new URL(String(input)).searchParams;
+      const q = params.get("q");
+      if (params.has("state") || q !== '(state="OPEN" OR state="MERGED") AND (draft=true OR draft=false)') {
+        return Response.json({ q }, { status: 500 });
+      }
+      return Response.json({ values: [] });
+    };
+  `);
+
+  const result = await runIre(
+    ["bitbucket", "pr", "list", "--repo", "ws/repo", "--state", "OPEN,MERGED", "--include-drafts"],
+    {
+      nodeArgs: ["--import", hookPath],
+      env: {
+        IRE_BITBUCKET_EMAIL: "bb-user",
+        IRE_BITBUCKET_API_TOKEN: "bb-secret",
+      },
+    },
+  );
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(parseJson(result.stdout).success, true);
+});
+
+test("bitbucket pr list rejects invalid --state values before network calls", async () => {
+  const hookPath = await writeFetchHook(`
+    globalThis.fetch = async () => { throw new Error("network call attempted"); };
+  `);
+
+  const result = await runIre(["bitbucket", "pr", "list", "--repo", "ws/repo", "--state", "OPEN,BOGUS"], {
+    nodeArgs: ["--import", hookPath],
+    env: {
+      IRE_BITBUCKET_EMAIL: "bb-user",
+      IRE_BITBUCKET_API_TOKEN: "bb-secret",
+    },
+  });
+  const envelope = parseJson(result.stdout);
+
+  assert.equal(result.exitCode, 2);
+  assert.equal(envelope.success, false);
+  assert.equal(envelope.error.code, "INVALID_STATE");
+});
+
+test("bitbucket pr list uses the cursor URL unchanged even with --state and --include-drafts", async () => {
+  const cursor = "https://api.bitbucket.org/2.0/repositories/ws/repo/pullrequests?page=2&pagelen=50";
+  const hookPath = await writeFetchHook(`
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url !== ${JSON.stringify(cursor)}) {
+        return Response.json({ url }, { status: 500 });
+      }
+      return Response.json({ values: [] });
+    };
+  `);
+
+  const result = await runIre(
+    ["bitbucket", "pr", "list", "--repo", "ws/repo", "--cursor", cursor, "--state", "OPEN", "--include-drafts"],
+    {
+      nodeArgs: ["--import", hookPath],
+      env: {
+        IRE_BITBUCKET_EMAIL: "bb-user",
+        IRE_BITBUCKET_API_TOKEN: "bb-secret",
+      },
+    },
+  );
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(parseJson(result.stdout).success, true);
 });
 
 test("bitbucket pr list reuses repository resolution from config and Git remote", async () => {
