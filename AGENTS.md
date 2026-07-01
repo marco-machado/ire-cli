@@ -1,25 +1,14 @@
 ## Repository Guidelines
 
-- Use logical groups when commiting
-- Use Conventional Commits format
-- Use branch names in the format `<type>/<issue-number>-<kebab-summary>` when tied to an issue, e.g. `feat/42-jira-comments-create` or `fix/58-config-env-precedence`
-- For work without an issue, use `<type>/<kebab-summary>`, e.g. `chore/update-readme` or `ci/required-checks`
-- Prefer Conventional Commit-style branch types: `feat`, `fix`, `docs`, `test`, `refactor`, `ci`, `chore`
-- Release by bumping `package.json` with `npm version patch|minor|major`, pushing `main` with tags, then publishing a GitHub Release from the matching `vX.Y.Z` tag
-- npm publishing is release-triggered through `.github/workflows/publish.yml`; do not publish manually from CI
-- Ensure release tags match the package version exactly, e.g. package `0.2.0` uses tag `v0.2.0`
-- Use `AskUserQuestion` tool if available
+- One commit per logical change
+- Use Conventional Commits format, with the same `feat`, `fix`, `docs`, `test`, `refactor`, `ci`, `chore` types preferred for branch names too
+- Use branch names in the format `<type>/<issue-number>-<kebab-summary>` when tied to an issue (e.g. `feat/42-jira-comments-create`, `fix/58-config-env-precedence`), or `<type>/<kebab-summary>` for work without an issue (e.g. `chore/update-readme`, `ci/required-checks`)
+- `main` is branch-protected: all changes must land via a merged pull request — direct pushes to `main` are rejected
+- Only merge commits are enabled for PRs (squash and rebase are disabled); `gh pr merge --merge` is the way to merge, even for single-commit branches
 
-## Agent skills
+## Release
 
-### Issue tracker
-
-Issues and PRDs are tracked in GitHub Issues for `marco-machado/ire-cli`. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Use the project triage vocabulary, including `ready-for-review` for completed work awaiting human review. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context layout: root `CONTEXT.md` plus root `docs/adr/`. See `docs/agents/domain.md`.
+- Bump `package.json` with `npm version patch|minor|major` on a `chore/release-vX.Y.Z` branch, open a PR, and merge it into `main`
+- Tag only after the release PR is merged: pull `main`, then tag the merged commit as `vX.Y.Z` (matching the package version exactly, e.g. package `0.2.0` uses tag `v0.2.0`) and push the tag — tagging before merge produces a tag pointing to a commit not reachable from `main`
+- Publish a GitHub Release from that `vX.Y.Z` tag to trigger `.github/workflows/publish.yml`, which validates the tag matches the package version and runs tests before publishing
+- Do not publish to npm manually from CI
