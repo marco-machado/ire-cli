@@ -13,6 +13,7 @@ Use `ire` as a read-only, agent-first wrapper around Jira Cloud and Bitbucket Cl
 ire config inspect
 ire auth check
 ire jira issue get ABC-123
+ire jira issue export ABC-123
 ire bitbucket pr get 42 --repo workspace/repo
 ire bitbucket pipelines latest --repo workspace/repo --branch main
 ```
@@ -62,11 +63,38 @@ On failure, still read stdout JSON: `success: false`, `error.code`, `error.messa
 
 ```sh
 ire jira issue get KEY
+ire jira issue export KEY
 ire jira issue search --jql "project = ABC ORDER BY updated DESC" --limit 50
 ire jira issue comments list KEY --limit 50
 ```
 
-Supported Jira flags: `--jira-base-url`, `--jira-email`, `--jira-api-token`, plus `--debug`; `get` and `comments list` support `--raw`.
+Supported Jira flags: `--jira-base-url`, `--jira-email`, `--jira-api-token`, plus `--debug`; `get` and `comments list` support `--raw`. `issue export` supports `--adf-format markdown|raw` and `--download-attachments <dir>`.
+
+### Complete issue export
+
+Use `ire jira issue export KEY` when one deterministic record should include header fields, sprint/story-point data, parent, configured semantic fields, all comments, attachment metadata, subtasks, and issue links. Rich text is Markdown by default; use `--adf-format raw` only when provider-native ADF is required.
+
+The success envelope is version `1.0`. Its `data` object contains string header fields; UTC `created`/`updated`; nullable `description`, `priority`, assignee/reporter, story points, and parent; array-valued labels, sprints, comments, attachments, subtasks, and issue links; and a `customFields` object keyed by configured semantic names. Comments contain `{ author, created, body }`; attachments contain `{ filename, mimeType, size, contentUrl }`; parent contains `{ key, summary }`.
+
+Configure semantic fields in project or user config:
+
+```json
+{
+  "jira": {
+    "issueExport": {
+      "fieldMappings": {
+        "sprints": ["customfield_10020"],
+        "storyPoints": ["customfield_10016"],
+        "testPlan": ["customfield_11747"]
+      }
+    }
+  }
+}
+```
+
+Mappings are ordered; the first populated ID wins. `sprints` and `storyPoints` are reserved top-level outputs, while other keys appear under `customFields`. Configured empty keys are `null`; unconfigured keys are absent. There are no built-in instance-specific IDs.
+
+`--download-attachments <dir>` writes authenticated attachment bytes to safe basenames and overwrites existing same-name files. JSON remains on stdout. Development-panel PR details are unavailable because Jira has no supported public read API; do not use private `dev-status` endpoints as a workaround.
 
 ## Bitbucket PR workflows
 

@@ -6,6 +6,7 @@ import {
   searchJiraIssues,
   type JiraDebugRequest,
 } from "./jira.js";
+import { exportJiraIssue, type AdfFormat } from "./jira-export.js";
 import { handleProviderError, writeEnvelope } from "./output.js";
 
 export function registerJiraCommands(program: Command): void {
@@ -46,6 +47,73 @@ export function registerJiraCommands(program: Command): void {
         const config = resolveConfig({ flags, redactSecrets: false });
         const data = await getJiraIssue(config, key, {
           raw: flags.raw,
+          debugRequests: flags.debug ? debugRequests : undefined,
+        });
+
+        writeEnvelope({ success: true, schemaVersion: "1.0", data, meta });
+      } catch (error) {
+        if (handleProviderError(error, meta)) return;
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: { code: "INTERNAL_ERROR", message: "Unexpected internal error" },
+          meta,
+        });
+        process.exitCode = 1;
+      }
+    });
+
+  jiraIssueCommand
+    .command("export")
+    .description("Export a complete curated Jira issue")
+    .argument("[key]", "Jira issue key")
+    .option("--adf-format <format>", "Render rich text as markdown or raw ADF", "markdown")
+    .option("--download-attachments <dir>", "Download attachments to a directory")
+    .option("--debug", "Include redacted provider request metadata")
+    .option("--jira-base-url <url>")
+    .option("--jira-email <email>")
+    .option("--jira-api-token <token>")
+    .action(async (key: string | undefined, flags) => {
+      const debugRequests: JiraDebugRequest[] = [];
+      const meta: Record<string, unknown> = flags.debug
+        ? { debug: { requests: debugRequests } }
+        : {};
+
+      try {
+        if (key === undefined) {
+          writeEnvelope({
+            success: false,
+            schemaVersion: "1.0",
+            error: {
+              code: "MISSING_ARGUMENT",
+              message: "Jira issue key is required",
+              details: { argument: "KEY" },
+            },
+            meta: {},
+          });
+          process.exitCode = 2;
+          return;
+        }
+
+        if (flags.adfFormat !== "markdown" && flags.adfFormat !== "raw") {
+          writeEnvelope({
+            success: false,
+            schemaVersion: "1.0",
+            error: {
+              code: "INVALID_OPTION",
+              message: "Jira issue export ADF format must be markdown or raw",
+              details: { option: "--adf-format", value: flags.adfFormat },
+            },
+            meta: {},
+          });
+          process.exitCode = 2;
+          return;
+        }
+
+        const config = resolveConfig({ flags, redactSecrets: false });
+        const data = await exportJiraIssue(config, key, {
+          adfFormat: flags.adfFormat as AdfFormat,
+          downloadAttachments: flags.downloadAttachments,
           debugRequests: flags.debug ? debugRequests : undefined,
         });
 

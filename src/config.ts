@@ -16,6 +16,11 @@ type ResolvedField = {
   source: ConfigSource;
 };
 
+type ResolvedFieldMappings = {
+  value: Record<string, string[]>;
+  source: ConfigSource;
+};
+
 type FieldDefinition = {
   envVar: string;
   secret: boolean;
@@ -60,6 +65,9 @@ export type ResolvedConfig = {
     baseUrl: ResolvedField;
     email: ResolvedField;
     apiToken: ResolvedField;
+    issueExport: {
+      fieldMappings: ResolvedFieldMappings;
+    };
   };
   bitbucket: {
     workspace: ResolvedField;
@@ -71,6 +79,11 @@ export type ResolvedConfig = {
 
 const defaultField = (): ResolvedField => ({
   value: null,
+  source: "default",
+});
+
+const defaultFieldMappings = (): ResolvedFieldMappings => ({
+  value: {},
   source: "default",
 });
 
@@ -91,6 +104,12 @@ const fields = {
 } satisfies Record<string, Record<string, FieldDefinition>>;
 
 const nullableString = z.string().nullable().optional();
+const fieldMappingsSchema = z.record(
+  z.string().regex(/^[A-Za-z][A-Za-z0-9]*$/, "Expected a safe semantic field name"),
+  z.array(
+    z.string().regex(/^customfield_\d+$/, "Expected a Jira custom field ID"),
+  ).min(1),
+);
 
 const configFileSchema = z
   .object({
@@ -99,6 +118,12 @@ const configFileSchema = z
         baseUrl: nullableString,
         email: nullableString,
         apiToken: nullableString,
+        issueExport: z
+          .object({
+            fieldMappings: fieldMappingsSchema.optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),
@@ -267,7 +292,7 @@ function readProjectEnv(cwd: string): RawConfigValues {
 function readConfigFile(
   configPath: string,
   configSource: "project config" | "user config",
-): RawConfigValues {
+): ConfigFile {
   if (!existsSync(configPath)) {
     return {};
   }
@@ -300,7 +325,7 @@ function readConfigFile(
     );
   }
 
-  return configFileToValues(parsedResult.data);
+  return parsedResult.data;
 }
 
 function configFileToValues(config: ConfigFile): RawConfigValues {
@@ -327,17 +352,36 @@ function flagsToValues(flags: ConfigFlags): RawConfigValues {
   };
 }
 
+function applyIssueExportMappings(
+  config: ResolvedConfig,
+  mappings: Record<string, string[]> | undefined,
+  source: ConfigSource,
+): void {
+  if (mappings === undefined) return;
+
+  config.jira.issueExport.fieldMappings = {
+    value: {
+      ...config.jira.issueExport.fieldMappings.value,
+      ...mappings,
+    },
+    source,
+  };
+}
+
 export function resolveConfig(options: ResolveConfigOptions = {}): ResolvedConfig {
   const cwd = options.cwd ?? process.cwd();
   const env = options.env ?? process.env;
   const flags = options.flags ?? {};
   const projectRoot = findProjectRoot(cwd);
   const redactSecrets = options.redactSecrets ?? true;
-  const config = {
+  const config: ResolvedConfig = {
     jira: {
       baseUrl: defaultField(),
       email: defaultField(),
       apiToken: defaultField(),
+      issueExport: {
+        fieldMappings: defaultFieldMappings(),
+      },
     },
     bitbucket: {
       workspace: defaultField(),
@@ -347,20 +391,31 @@ export function resolveConfig(options: ResolveConfigOptions = {}): ResolvedConfi
     },
   };
 
-  applySource(
+  const userConfig = readConfigFile(
+    join(options.homeDir ?? homedir(), ".config", "ire-cli", "config.json"),
+    "user config",
+  );
+  const projectConfig = readConfigFile(
+    join(projectRoot, ".ire", "config.json"),
+    "project config",
+  );
+
+  applySource(config, configFileToValues(userConfig), "user-config", redactSecrets);
+  applyIssueExportMappings(
     config,
-    readConfigFile(
-      join(options.homeDir ?? homedir(), ".config", "ire-cli", "config.json"),
-      "user config",
-    ),
+    userConfig.jira?.issueExport?.fieldMappings,
     "user-config",
-    redactSecrets,
   );
   applySource(
     config,
-    readConfigFile(join(projectRoot, ".ire", "config.json"), "project config"),
+    configFileToValues(projectConfig),
     "project-config",
     redactSecrets,
+  );
+  applyIssueExportMappings(
+    config,
+    projectConfig.jira?.issueExport?.fieldMappings,
+    "project-config",
   );
   applySource(config, readProjectEnv(cwd), "project-env", redactSecrets);
   applySource(config, env, "env", redactSecrets);
