@@ -69,6 +69,9 @@ test("config inspect reports defaulted config fields", async () => {
         baseUrl: { value: null, source: "default" },
         email: { value: null, source: "default" },
         apiToken: { value: null, source: "default" },
+        issueExport: {
+          fieldMappings: { value: {}, source: "default" },
+        },
       },
       bitbucket: {
         workspace: { value: null, source: "default" },
@@ -99,6 +102,9 @@ test("config inspect resolves process environment values and redacts secrets", a
       baseUrl: { value: "https://jira.example.test", source: "env" },
       email: { value: "agent@example.test", source: "env" },
       apiToken: { value: "<redacted>", source: "env" },
+      issueExport: {
+        fieldMappings: { value: {}, source: "default" },
+      },
     },
     bitbucket: {
       workspace: { value: "example-workspace", source: "env" },
@@ -156,6 +162,12 @@ test("config inspect respects flag env project and user config precedence", asyn
         baseUrl: "https://user-jira.example.test",
         email: "user-agent@example.test",
         apiToken: "user-jira-secret",
+        issueExport: {
+          fieldMappings: {
+            acceptanceCriteria: ["customfield_11745"],
+            testPlan: ["customfield_11747"],
+          },
+        },
       },
       bitbucket: {
         workspace: "user-workspace",
@@ -170,6 +182,12 @@ test("config inspect respects flag env project and user config precedence", asyn
     JSON.stringify({
       jira: {
         baseUrl: "https://project-config-jira.example.test",
+        issueExport: {
+          fieldMappings: {
+            testPlan: ["customfield_21747"],
+            storyPoints: ["customfield_10016"],
+          },
+        },
       },
       bitbucket: {
         workspace: "project-config-workspace",
@@ -213,6 +231,16 @@ test("config inspect respects flag env project and user config precedence", asyn
       },
       email: { value: "flag-agent@example.test", source: "flag" },
       apiToken: { value: "<redacted>", source: "user-config" },
+      issueExport: {
+        fieldMappings: {
+          value: {
+            acceptanceCriteria: ["customfield_11745"],
+            testPlan: ["customfield_21747"],
+            storyPoints: ["customfield_10016"],
+          },
+          source: "project-config",
+        },
+      },
     },
     bitbucket: {
       workspace: { value: "env-workspace", source: "env" },

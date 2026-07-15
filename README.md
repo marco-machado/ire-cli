@@ -128,7 +128,15 @@ Example project config:
   "jira": {
     "baseUrl": "https://example.atlassian.net",
     "email": "agent@example.com",
-    "apiToken": "use-env-for-secrets-when-possible"
+    "apiToken": "use-env-for-secrets-when-possible",
+    "issueExport": {
+      "fieldMappings": {
+        "sprints": ["customfield_10020"],
+        "storyPoints": ["customfield_10016"],
+        "acceptanceCriteria": ["customfield_11745", "customfield_11735"],
+        "testPlan": ["customfield_11747"]
+      }
+    }
   },
   "bitbucket": {
     "workspace": "example-workspace",
@@ -151,6 +159,7 @@ ire config inspect
 
 ```text
 ire jira issue get KEY
+ire jira issue export KEY
 ire jira issue search --jql "project = ABC ORDER BY updated DESC"
 ire jira issue comments list KEY
 ```
@@ -160,6 +169,7 @@ Jira issue keys are always explicit. The CLI does not infer Jira issue identity 
 Supported options:
 
 - `ire jira issue get`: `--raw`, `--debug`, Jira config flags.
+- `ire jira issue export`: `--adf-format markdown|raw`, `--download-attachments <dir>`, `--debug`, Jira config flags.
 - `ire jira issue search`: `--jql`, `--limit`, `--cursor`, `--debug`, Jira config flags.
 - `ire jira issue comments list`: `--limit`, `--cursor`, `--raw`, `--debug`, Jira config flags.
 
@@ -170,6 +180,37 @@ Jira config flags are:
 --jira-email <email>
 --jira-api-token <token>
 ```
+
+#### Complete Jira issue export
+
+`ire jira issue export KEY` emits one curated issue record containing normalized header fields, sprint/story-point data, a nullable parent, configured semantic fields, all comments, attachment metadata, subtasks, and issue links. It keeps `jira issue get` backward-compatible.
+
+The standard success envelope has `schemaVersion: "1.0"`; its `data` contract is:
+
+| Field | Type |
+| --- | --- |
+| `key`, `summary`, `status`, `issueType`, `created`, `updated` | `string` (`created`/`updated` are UTC ISO-8601) |
+| `description` | Markdown `string`, raw ADF object, or `null` |
+| `priority` | `string \| null` |
+| `project` | `{ key: string, name: string }` |
+| `assignee`, `reporter` | `{ accountId: string, displayName: string } \| null` |
+| `labels` | `string[]` |
+| `sprints` | `{ name: string, state: string }[]` |
+| `storyPoints` | `number \| null` |
+| `parent` | `{ key: string, summary: string } \| null` |
+| `customFields` | configured semantic keys with JSON values or `null` |
+| `comments` | `{ author, created, body }[]`, with UTC timestamps and Markdown/raw ADF bodies |
+| `attachments` | `{ filename, mimeType, size, contentUrl }[]` |
+| `subtasks` | `{ key, summary, status }[]` |
+| `issueLinks` | `{ relationship, key, summary, type, status }[]` |
+
+ADF descriptions, comments, and configured rich-text fields are rendered as Markdown by default. Use `--adf-format raw` to retain ADF objects consistently across every rich-text field.
+
+Configure instance-specific Jira fields under `jira.issueExport.fieldMappings`. Each semantic key maps to an ordered list of provider field IDs; the first populated candidate wins. `sprints` and `storyPoints` are reserved output keys. Other configured keys are emitted under `customFields`. Configured-but-empty keys are `null`, unconfigured keys are omitted, and no instance-specific IDs are built in.
+
+`--download-attachments <dir>` downloads attachment bytes with Jira authentication after validating the export. Provider filenames are reduced to safe basenames, and existing same-name files are overwritten. The JSON export still goes to stdout.
+
+Development-panel pull requests are not included because Jira Cloud has no supported public API for reading them. The export does not use private `dev-status` endpoints or heuristic branch matching.
 
 ### Bitbucket pull requests
 
