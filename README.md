@@ -1,10 +1,43 @@
+<div align="center">
+
 # ire-cli
 
-`ire-cli` is an agent-first CLI for read-only access to Jira Cloud and Bitbucket Cloud. It is designed for coding agents such as Claude Code, Codex, Gemini, and opencode that need deterministic API primitives with structured output.
+**The Immutable Read Engine for Jira Cloud and Bitbucket Cloud**
+
+[![npm version](https://img.shields.io/npm/v/%40marco.machado%2Fire-cli)](https://www.npmjs.com/package/@marco.machado/ire-cli)
+[![CI](https://github.com/marco-machado/ire-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/marco-machado/ire-cli/actions/workflows/ci.yml)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+
+Give coding agents deterministic, structured access to issue, pull request, and pipeline context—without giving them write access.
+
+</div>
+
+`ire-cli` exposes thin, composable Jira Cloud and Bitbucket Cloud API primitives for coding agents such as Claude Code, Codex, Gemini, and opencode. Every command produces a stable JSON envelope that is straightforward to parse, validate, and compose.
+
+> [!IMPORTANT]
+> `ire-cli` is permanently read-only. It does not create, update, approve, merge, rerun, or delete provider resources.
 
 The npm package is `@marco.machado/ire-cli`; the executable is `ire`.
 
-## Installation
+## Features
+
+- Stable JSON success and error envelopes with documented exit codes.
+- Normalized, agent-oriented schemas with raw provider payloads where supported.
+- Jira issue retrieval, search, comments, and complete issue exports.
+- Bitbucket pull request details, lists, comments, changed files, and diffs.
+- Bitbucket Pipelines runs, steps, and logs.
+- Layered configuration with secret redaction and lightweight auth checks.
+- Explicit pagination and optional redacted request diagnostics.
+- No prompts, spinners, fuzzy selection, or human-only terminal formatting.
+
+## Getting started
+
+### Prerequisites
+
+- Node.js 22 or later
+- A Jira Cloud API token, a Bitbucket Cloud API token, or both
+
+### Install
 
 Run without installing globally:
 
@@ -19,7 +52,31 @@ npm install -g @marco.machado/ire-cli
 ire --help
 ```
 
-`ire-cli` requires Node.js `>=22`.
+### Configure
+
+Set credentials through environment variables, then verify the resolved configuration and authentication:
+
+```sh
+export IRE_JIRA_BASE_URL="https://example.atlassian.net"
+export IRE_JIRA_EMAIL="agent@example.com"
+export IRE_JIRA_API_TOKEN="..."
+
+ire config inspect
+ire auth check jira
+```
+
+For Bitbucket, use `IRE_BITBUCKET_WORKSPACE`, `IRE_BITBUCKET_REPO`, `IRE_BITBUCKET_EMAIL`, and `IRE_BITBUCKET_API_TOKEN`.
+
+> [!NOTE]
+> Prefer environment variables for credentials. `ire config inspect` redacts secrets in its output.
+
+### Run
+
+```sh
+ire jira issue export ABC-123
+ire bitbucket pr get 42 --repo workspace/repository
+ire bitbucket pipelines latest --repo workspace/repository --branch main
+```
 
 ## Agent skill
 
@@ -34,14 +91,6 @@ Or install directly from the skill path:
 ```sh
 npx skills add https://github.com/marco-machado/ire-cli/tree/main/skills/use-ire-cli
 ```
-
-## Design goals
-
-- Provide thin, composable Jira and Bitbucket primitives.
-- Emit stable JSON envelopes by default.
-- Normalize provider responses into agent-oriented schemas.
-- Provide read-only inspection commands for Jira, Bitbucket pull requests, and Bitbucket Pipelines.
-- Avoid interactive prompts, spinners, fuzzy selection, and human-first terminal formatting in the default path.
 
 ## Output contract
 
@@ -63,13 +112,14 @@ Failures use the same envelope:
   "success": false,
   "schemaVersion": "1.0",
   "error": {
-    "code": "jira.issue_not_found",
-    "message": "Issue ABC-123 was not found",
-    "statusCode": 404
+    "code": "JIRA_ISSUE_NOT_FOUND",
+    "message": "Jira issue ABC-123 was not found",
+    "details": {
+      "key": "ABC-123",
+      "status": 404
+    }
   },
-  "meta": {
-    "provider": "jira"
-  }
+  "meta": {}
 }
 ```
 
@@ -275,21 +325,21 @@ default limit: 50
 maximum limit: 100
 ```
 
-Responses include pagination metadata:
+Responses include pagination metadata inside `data`. For example, Jira search returns:
 
 ```json
 {
   "success": true,
   "schemaVersion": "1.0",
-  "data": [],
-  "pagination": {
-    "limit": 50,
-    "nextCursor": null,
-    "hasNextPage": false
+  "data": {
+    "issues": [],
+    "pagination": {
+      "limit": 50,
+      "nextCursor": null,
+      "hasNextPage": false
+    }
   },
-  "meta": {
-    "provider": "jira"
-  }
+  "meta": {}
 }
 ```
 
@@ -321,7 +371,7 @@ Use `--debug` to include redacted request metadata under `meta.debug`. Debug out
 ## Development
 
 ```sh
-npm install
+npm ci
 npm test
 npm run build
 ```
