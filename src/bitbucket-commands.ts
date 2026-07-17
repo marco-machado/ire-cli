@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, resolve as resolvePath } from "node:path";
 import type { Command } from "commander";
 import { resolveConfig } from "./config.js";
 import {
@@ -13,7 +15,32 @@ import {
   listBitbucketPullRequests,
   type BitbucketDebugRequest,
 } from "./bitbucket.js";
+import { exportBitbucketPullRequest } from "./bitbucket-export.js";
+import { IreConfigurationError } from "./errors.js";
 import { handleProviderError, writeEnvelope } from "./output.js";
+
+class BitbucketExportWriteError extends IreConfigurationError {
+  readonly code = "BITBUCKET_EXPORT_WRITE_FAILED";
+
+  constructor(readonly details: { path: string }) {
+    super("Bitbucket pull request export could not be written");
+  }
+}
+
+async function writeExportOutputFile(path: string, envelope: unknown): Promise<string> {
+  const resolved = resolvePath(path);
+  try {
+    await mkdir(dirname(resolved), { recursive: true });
+    await writeFile(resolved, `${JSON.stringify(envelope, null, 2)}\n`, "utf8");
+    return resolved;
+  } catch {
+    throw new BitbucketExportWriteError({ path: resolved });
+  }
+}
+
+function resolveExportOutputPath(path: string): string {
+  return resolvePath(path);
+}
 
 export function registerBitbucketCommands(program: Command): void {
   const bitbucketCommand = program.command("bitbucket").description("Read Bitbucket resources");
@@ -312,6 +339,84 @@ export function registerBitbucketCommands(program: Command): void {
     });
 
   const bitbucketPrCommand = bitbucketCommand.command("pr").description("Read Bitbucket pull requests");
+
+  bitbucketPrCommand
+    .command("export")
+    .description("Export a complete curated Bitbucket pull request for review analysis")
+    .argument("[id]", "Bitbucket pull request ID")
+    .option("--output <path>", "Write the success envelope JSON to a file")
+    .option("--repo <repo>", "Bitbucket repository identity as workspace/repo")
+    .option("--debug", "Include redacted provider request metadata")
+    .option("--bitbucket-workspace <workspace>")
+    .option("--bitbucket-repo <repo>")
+    .option("--bitbucket-email <email>")
+    .option("--bitbucket-api-token <token>")
+    .action(async (id: string | undefined, flags) => {
+      const debugRequests: BitbucketDebugRequest[] = [];
+      const meta: Record<string, unknown> = flags.debug ? { debug: { requests: debugRequests } } : {};
+
+      try {
+        if (id === undefined) {
+          writeEnvelope({
+            success: false,
+            schemaVersion: "1.0",
+            error: { code: "MISSING_ARGUMENT", message: "Bitbucket pull request ID is required", details: { argument: "ID" } },
+            meta: {},
+          });
+          process.exitCode = 2;
+          return;
+        }
+
+        const pullRequestId = Number(id);
+        if (!Number.isInteger(pullRequestId) || pullRequestId < 1) {
+          writeEnvelope({
+            success: false,
+            schemaVersion: "1.0",
+            error: { code: "INVALID_ARGUMENT", message: "Bitbucket pull request ID must be a positive integer", details: { argument: "ID", value: id } },
+            meta: {},
+          });
+          process.exitCode = 2;
+          return;
+        }
+
+        const config = resolveConfig({ flags, redactSecrets: false });
+        const result = await exportBitbucketPullRequest(config, pullRequestId, {
+          repo: flags.repo,
+          debugRequests: flags.debug ? debugRequests : undefined,
+        });
+
+        const envelopeMeta: Record<string, unknown> = { ...meta, bitbucket: result.repo };
+
+        if (flags.output !== undefined) {
+          envelopeMeta.outputPath = resolveExportOutputPath(flags.output);
+          const envelope = {
+            success: true as const,
+            schemaVersion: "1.0" as const,
+            data: result.data,
+            meta: envelopeMeta,
+          };
+          await writeExportOutputFile(flags.output, envelope);
+          writeEnvelope(envelope);
+          return;
+        }
+
+        writeEnvelope({
+          success: true,
+          schemaVersion: "1.0",
+          data: result.data,
+          meta: envelopeMeta,
+        });
+      } catch (error) {
+        if (handleProviderError(error, meta)) return;
+        writeEnvelope({
+          success: false,
+          schemaVersion: "1.0",
+          error: { code: "INTERNAL_ERROR", message: "Unexpected internal error" },
+          meta,
+        });
+        process.exitCode = 1;
+      }
+    });
 
   bitbucketPrCommand
     .command("list")
