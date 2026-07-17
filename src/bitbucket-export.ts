@@ -606,7 +606,8 @@ export async function exportBitbucketPullRequest(
     collectAllPages((cursor) =>
       listBitbucketPullRequestActivity(config, id, {
         ...shared,
-        limit: 100,
+        // Bitbucket rejects activity pagelen above 50 (HTTP 400 Invalid pagelen).
+        limit: 50,
         cursor,
         raw: true,
       }).then((result) => result.data),

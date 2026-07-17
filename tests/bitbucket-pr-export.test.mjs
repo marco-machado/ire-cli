@@ -188,7 +188,7 @@ function defaultExportHookSource() {
         });
       }
 
-      if (url === base + "/activity?pagelen=100") {
+      if (url === base + "/activity?pagelen=50") {
         return Response.json({
           values: [
             {
@@ -205,11 +205,11 @@ function defaultExportHookSource() {
               }
             }
           ],
-          next: base + "/activity?page=2&pagelen=100"
+          next: base + "/activity?page=2&pagelen=50"
         });
       }
 
-      if (url === base + "/activity?page=2&pagelen=100") {
+      if (url === base + "/activity?page=2&pagelen=50") {
         return Response.json({
           values: [
             {
@@ -408,7 +408,7 @@ test("bitbucket pr export handles empty comments and activity", async () => {
       }
       if (url === base + "/comments?pagelen=100") return Response.json({ values: [] });
       if (url === base + "/diffstat?pagelen=100") return Response.json({ values: [] });
-      if (url === base + "/activity?pagelen=100") return Response.json({ values: [] });
+      if (url === base + "/activity?pagelen=50") return Response.json({ values: [] });
       if (url === base + "/diff") return new Response("", { status: 200 });
       return Response.json({ message: "unexpected", url }, { status: 500 });
     };
@@ -473,7 +473,7 @@ test("bitbucket pr export computes maxThreadDepth for nested replies", async () 
         });
       }
       if (url === base + "/diffstat?pagelen=100") return Response.json({ values: [] });
-      if (url === base + "/activity?pagelen=100") return Response.json({ values: [] });
+      if (url === base + "/activity?pagelen=50") return Response.json({ values: [] });
       if (url === base + "/diff") return new Response("", { status: 200 });
       return Response.json({ message: "unexpected", url }, { status: 500 });
     };
