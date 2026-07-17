@@ -52,6 +52,7 @@ type BitbucketPullRequestCommentsListOptions = {
   repo?: string;
   limit?: number;
   cursor?: string;
+  raw?: boolean;
   cwd?: string;
   fetchImpl?: Fetch;
   debugRequests?: BitbucketDebugRequest[];
@@ -61,6 +62,7 @@ type BitbucketPullRequestFilesOptions = {
   repo?: string;
   limit?: number;
   cursor?: string;
+  raw?: boolean;
   cwd?: string;
   fetchImpl?: Fetch;
   debugRequests?: BitbucketDebugRequest[];
@@ -68,6 +70,16 @@ type BitbucketPullRequestFilesOptions = {
 
 type BitbucketPullRequestDiffOptions = {
   repo?: string;
+  cwd?: string;
+  fetchImpl?: Fetch;
+  debugRequests?: BitbucketDebugRequest[];
+};
+
+type BitbucketPullRequestActivityListOptions = {
+  repo?: string;
+  limit?: number;
+  cursor?: string;
+  raw?: boolean;
   cwd?: string;
   fetchImpl?: Fetch;
   debugRequests?: BitbucketDebugRequest[];
@@ -946,6 +958,18 @@ function pullRequestDiffUrl(repo: BitbucketRepoIdentity, id: number): string {
   return `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(repo.workspace)}/${encodeURIComponent(repo.repo)}/pullrequests/${id}/diff`;
 }
 
+function pullRequestActivityUrl(repo: BitbucketRepoIdentity, id: number, limit: number, cursor?: string): string {
+  if (cursor !== undefined) {
+    return cursor;
+  }
+
+  const url = new URL(
+    `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(repo.workspace)}/${encodeURIComponent(repo.repo)}/pullrequests/${id}/activity`,
+  );
+  url.searchParams.set("pagelen", String(limit));
+  return String(url);
+}
+
 function pipelineUrl(repo: BitbucketRepoIdentity, uuid: string): string {
   return `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(repo.workspace)}/${encodeURIComponent(repo.repo)}/pipelines/${encodeURIComponent(uuid)}`;
 }
@@ -1314,7 +1338,86 @@ export async function listBitbucketPullRequestComments(
   }
 
   const body = await readProviderJson(response);
+  if (options.raw) {
+    return { data: body, repo };
+  }
   return { data: normalizePullRequestCommentsList(body, limit), repo };
+}
+
+export async function listBitbucketPullRequestActivity(
+  config: ResolvedConfig,
+  id: number,
+  options: BitbucketPullRequestActivityListOptions = {},
+): Promise<{ data: unknown; repo: BitbucketRepoIdentity }> {
+  assertBitbucketConfigComplete(config);
+
+  const repo = resolveBitbucketRepo(config, {
+    repo: options.repo,
+    cwd: options.cwd,
+  });
+  const limit = options.limit ?? 50;
+  const url = pullRequestActivityUrl(repo, id, limit, options.cursor);
+  const startedAt = Date.now();
+  const fetchImpl = options.fetchImpl ?? fetch;
+  let response: Response;
+
+  try {
+    response = await fetchImpl(url, {
+      headers: {
+        accept: "application/json",
+        authorization: basicAuthorization(
+          config.bitbucket.email.value,
+          config.bitbucket.apiToken.value,
+        ),
+      },
+    });
+  } catch {
+    options.debugRequests?.push({
+      provider: "bitbucket",
+      method: "GET",
+      url,
+      latencyMs: Date.now() - startedAt,
+    });
+    throw new BitbucketNetworkError();
+  }
+
+  options.debugRequests?.push({
+    provider: "bitbucket",
+    method: "GET",
+    url,
+    status: response.status,
+    latencyMs: Date.now() - startedAt,
+  });
+
+  if (response.status === 404) {
+    throw new BitbucketPullRequestNotFoundError(id, repo);
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    throw new BitbucketAuthenticationError(response.status);
+  }
+
+  if (!response.ok) {
+    throw new BitbucketProviderError(
+      "Bitbucket provider request failed",
+      response.status,
+    );
+  }
+
+  const body = await readProviderJson(response);
+  if (options.raw) {
+    return { data: body, repo };
+  }
+
+  const page = asRecord(body);
+  const values = Array.isArray(page?.values) ? page.values : [];
+  return {
+    data: {
+      activity: values,
+      pagination: paginationFromProvider(page, limit),
+    },
+    repo,
+  };
 }
 
 export async function listBitbucketPullRequestFiles(
@@ -1378,6 +1481,9 @@ export async function listBitbucketPullRequestFiles(
   }
 
   const body = await readProviderJson(response);
+  if (options.raw) {
+    return { data: body, repo };
+  }
   return { data: normalizePullRequestFiles(body, limit), repo };
 }
 

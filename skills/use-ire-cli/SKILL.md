@@ -101,12 +101,20 @@ Mappings are ordered; the first populated ID wins. `sprints` and `storyPoints` a
 ```sh
 ire bitbucket pr list --repo workspace/repo --limit 50
 ire bitbucket pr get ID --repo workspace/repo
+ire bitbucket pr export ID --repo workspace/repo
+ire bitbucket pr export ID --repo workspace/repo --output ./pr-ID.json
 ire bitbucket pr comments list ID --repo workspace/repo --limit 50
 ire bitbucket pr files ID --repo workspace/repo --limit 50
 ire bitbucket pr diff ID --repo workspace/repo
 ```
 
 PR IDs must be positive integers. Responses include resolved repo identity in `meta.bitbucket`.
+
+### Complete PR export
+
+Use `ire bitbucket pr export ID` when one deterministic record should include PR header fields, participants/approvals, all comments (with `parentId` for threads), all changed files (with line stats when available), activity timeline, unified diff, and derived `metrics` for review analysis (who comments, by-file counts, thread depth, density, first-approval lag).
+
+The success envelope is version `1.0`. Prefer `--output <path>` for offline corpora; the same full envelope is still written to stdout, and `meta.outputPath` records the resolved file path. Parent directories are created; existing files are overwritten. Export is read-only against Bitbucket and may issue many paginated provider requests for a large PR.
 
 ## Bitbucket Pipelines workflows
 
