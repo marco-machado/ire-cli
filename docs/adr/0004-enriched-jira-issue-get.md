@@ -29,4 +29,4 @@ This supersedes three ADR-0002 statements as they apply to `jira issue get`: the
 
 Consumers read one command to understand an issue without falling back to the Jira UI or raw payloads. Scripts detect the contract change through the schema version.
 
-The `dev-status` endpoint is internal and undocumented; Atlassian may change it without notice, and the `applicationType=bitbucket` filter hides pull requests linked through other tools. Strict failure makes an endpoint change loud rather than silent. The hardcoded field ids belong to the target Jira instance; other instances see `null` values.
+The `dev-status` endpoint is internal and undocumented; Atlassian may change it without notice, and the `applicationType=bitbucket` filter hides pull requests linked through other tools. Strict failure makes an endpoint change loud rather than silent. The hardcoded field ids belong to the target Jira instance. Fields that are absent or unset come back as `null` on any instance; a field present with an unexpected shape fails normalized-output validation rather than degrading to `null`.
