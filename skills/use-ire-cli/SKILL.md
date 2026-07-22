@@ -24,7 +24,7 @@ Every command writes a JSON envelope to stdout:
 { "success": true, "schemaVersion": "1.0", "data": {}, "meta": {} }
 ```
 
-On failure, still read stdout JSON: `success: false`, `error.code`, `error.message`, optional `error.details`, and `meta`.
+On failure, still read stdout JSON: `success: false`, `error.code`, `error.message`, optional `error.details`, and `meta`. `schemaVersion` states the `data` contract: `1.1` for `jira issue get` success envelopes, `1.0` everywhere else.
 
 ## Core rules
 
@@ -70,6 +70,12 @@ ire jira issue comments list KEY --limit 50
 
 Supported Jira flags: `--jira-base-url`, `--jira-email`, `--jira-api-token`, plus `--debug`; `get` and `comments list` support `--raw`. `issue export` supports `--adf-format markdown|raw` and `--download-attachments <dir>`.
 
+### Full issue detail
+
+Use `ire jira issue get KEY` to understand one issue in a single command. Its `data` contains header fields; `testPlan`, `regressionTestingGuidance`, and `regression` as `string | null`; a nullable `parent` and `subtasks` as `{ key, summary, type, status }`; `issueLinks` as `{ relationship, key, summary, type, status }`; the complete comment list as `{ id, author, body, created, updated }`; and development-panel `pullRequests` as `{ title, url, status, branch, repository, author, updated }`. Rich text is plain text. The QA field ids are built in for the target Jira instance; unset fields are `null` on any instance.
+
+The success envelope is version `1.1`. The command performs several provider requests and fails whole when any of them fails. `--raw` returns the fetched provider payloads as `{ issue, comments, pullRequests }`.
+
 ### Complete issue export
 
 Use `ire jira issue export KEY` when one deterministic record should include header fields, sprint/story-point data, parent, configured semantic fields, all comments, attachment metadata, subtasks, and issue links. Rich text is Markdown by default; use `--adf-format raw` only when provider-native ADF is required.
@@ -94,7 +100,7 @@ Configure semantic fields in project or user config:
 
 Mappings are ordered; the first populated ID wins. `sprints` and `storyPoints` are reserved top-level outputs, while other keys appear under `customFields`. Configured empty keys are `null`; unconfigured keys are absent. There are no built-in instance-specific IDs.
 
-`--download-attachments <dir>` writes authenticated attachment bytes to safe basenames and overwrites existing same-name files. JSON remains on stdout. Development-panel PR details are unavailable because Jira has no supported public read API; do not use private `dev-status` endpoints as a workaround.
+`--download-attachments <dir>` writes authenticated attachment bytes to safe basenames and overwrites existing same-name files. JSON remains on stdout. The export excludes development-panel pull requests; `ire jira issue get` returns them.
 
 ## Bitbucket PR workflows
 

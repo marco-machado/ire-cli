@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted. Partially superseded by ADR-0004, which enriches `jira issue get`.
 
 ## Context
 

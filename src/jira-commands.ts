@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import { resolveConfig } from "./config.js";
 import {
-  getJiraIssue,
+  getEnrichedJiraIssue,
   listJiraIssueComments,
   searchJiraIssues,
   type JiraDebugRequest,
@@ -15,7 +15,9 @@ export function registerJiraCommands(program: Command): void {
 
   jiraIssueCommand
     .command("get")
-    .description("Fetch a Jira issue by explicit key")
+    .description(
+      "Fetch a Jira issue in full detail: QA fields, hierarchy, links, comments, and pull requests",
+    )
     .argument("[key]", "Jira issue key")
     .option("--raw", "Return the provider-native Jira payload")
     .option("--debug", "Include redacted provider request metadata")
@@ -45,12 +47,12 @@ export function registerJiraCommands(program: Command): void {
         }
 
         const config = resolveConfig({ flags, redactSecrets: false });
-        const data = await getJiraIssue(config, key, {
+        const data = await getEnrichedJiraIssue(config, key, {
           raw: flags.raw,
           debugRequests: flags.debug ? debugRequests : undefined,
         });
 
-        writeEnvelope({ success: true, schemaVersion: "1.0", data, meta });
+        writeEnvelope({ success: true, schemaVersion: "1.1", data, meta });
       } catch (error) {
         if (handleProviderError(error, meta)) return;
         writeEnvelope({

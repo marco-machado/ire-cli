@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isAdfDocument } from "./adf.js";
 import { checkProviderAuth } from "./auth.js";
 import type { ResolvedConfig } from "./config.js";
 import {
@@ -123,27 +124,27 @@ const userSchema = z
   })
   .strict();
 
-const normalizedJiraIssueSchema = z
-  .object({
-    key: z.string(),
-    summary: z.string(),
-    description: z.string().nullable().optional(),
-    status: z.string(),
-    issueType: z.string(),
-    priority: z.string().nullable().optional(),
-    project: z
-      .object({
-        key: z.string(),
-        name: z.string(),
-      })
-      .strict(),
-    assignee: userSchema.nullable().optional(),
-    reporter: userSchema.nullable().optional(),
-    labels: z.array(z.string()),
-    created: z.iso.datetime(),
-    updated: z.iso.datetime(),
-  })
-  .strict();
+const jiraIssueBaseShape = {
+  key: z.string(),
+  summary: z.string(),
+  description: z.string().nullable().optional(),
+  status: z.string(),
+  issueType: z.string(),
+  priority: z.string().nullable().optional(),
+  project: z
+    .object({
+      key: z.string(),
+      name: z.string(),
+    })
+    .strict(),
+  assignee: userSchema.nullable().optional(),
+  reporter: userSchema.nullable().optional(),
+  labels: z.array(z.string()),
+  created: z.iso.datetime(),
+  updated: z.iso.datetime(),
+};
+
+const normalizedJiraIssueSchema = z.object(jiraIssueBaseShape).strict();
 
 const normalizedJiraIssueSummarySchema = z
   .object({
@@ -190,7 +191,75 @@ const normalizedJiraIssueCommentsListSchema = z
   })
   .strict();
 
+const JIRA_TEST_PLAN_FIELD_ID = "customfield_11747";
+const JIRA_REGRESSION_TESTING_GUIDANCE_FIELD_ID = "customfield_12213";
+const JIRA_REGRESSION_FIELD_ID = "customfield_11734";
+
+const relatedIssueSchema = z
+  .object({
+    key: z.string(),
+    summary: z.string(),
+    type: z.string(),
+    status: z.string(),
+  })
+  .strict();
+
+const issueLinkSchema = z
+  .object({
+    relationship: z.string(),
+    key: z.string(),
+    summary: z.string(),
+    type: z.string(),
+    status: z.string(),
+  })
+  .strict();
+
+const pullRequestSchema = z
+  .object({
+    title: z.string(),
+    url: z.string(),
+    status: z.string(),
+    branch: z.string(),
+    repository: z.string(),
+    author: z.string(),
+    updated: z.iso.datetime(),
+  })
+  .strict();
+
+const normalizedEnrichedJiraIssueSchema = z
+  .object({
+    ...jiraIssueBaseShape,
+    testPlan: z.string().nullable(),
+    regressionTestingGuidance: z.string().nullable(),
+    regression: z.string().nullable(),
+    parent: relatedIssueSchema.nullable(),
+    subtasks: z.array(relatedIssueSchema),
+    issueLinks: z.array(issueLinkSchema),
+    comments: z.array(normalizedJiraCommentSchema),
+    pullRequests: z.array(pullRequestSchema),
+  })
+  .strict();
+
+const jiraCommentPageSchema = z
+  .object({
+    startAt: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+    comments: z.array(z.unknown()),
+  })
+  .passthrough();
+
+const jiraDevStatusSchema = z
+  .object({
+    detail: z.array(
+      z.object({ pullRequests: z.array(z.unknown()) }).passthrough(),
+    ),
+  })
+  .passthrough();
+
 export type NormalizedJiraIssue = z.infer<typeof normalizedJiraIssueSchema>;
+export type NormalizedEnrichedJiraIssue = z.infer<
+  typeof normalizedEnrichedJiraIssueSchema
+>;
 export type NormalizedJiraIssueSummary = z.infer<
   typeof normalizedJiraIssueSummarySchema
 >;
@@ -338,6 +407,29 @@ function descriptionField(value: unknown): string | null | undefined {
   return adfToPlainText(value);
 }
 
+function qaRichTextField(value: unknown, path: string): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (isAdfDocument(value)) {
+    return adfToPlainText(value) ?? null;
+  }
+
+  throw new JiraNormalizedOutputError(
+    [{
+      code: "invalid_rich_text",
+      message: "QA field is neither a string nor an ADF document",
+      path,
+    }],
+    "Jira QA field output failed validation",
+  );
+}
+
 function normalizeJiraIssueSummary(providerIssue: unknown): Record<string, unknown> {
   const issue = asRecord(providerIssue);
   const fields = asRecord(issue?.fields);
@@ -362,7 +454,7 @@ function normalizeJiraIssueSummary(providerIssue: unknown): Record<string, unkno
   return normalized;
 }
 
-function normalizeJiraIssue(providerIssue: unknown): NormalizedJiraIssue {
+function normalizeJiraIssueBase(providerIssue: unknown): Record<string, unknown> {
   const issue = asRecord(providerIssue);
   const fields = asRecord(issue?.fields);
   const normalized: Record<string, unknown> = {
@@ -393,7 +485,131 @@ function normalizeJiraIssue(providerIssue: unknown): NormalizedJiraIssue {
     normalized.reporter = userField(fields.reporter);
   }
 
+  return normalized;
+}
+
+function normalizeJiraIssue(providerIssue: unknown): NormalizedJiraIssue {
+  const normalized = normalizeJiraIssueBase(providerIssue);
   const parsedResult = normalizedJiraIssueSchema.safeParse(normalized);
+
+  if (!parsedResult.success) {
+    throw new JiraNormalizedOutputError(
+      parsedResult.error.issues.map((issue) => ({
+        code: issue.code,
+        message: issue.message,
+        path: issue.path.join("."),
+      })),
+    );
+  }
+
+  return parsedResult.data;
+}
+
+function optionValueField(value: unknown): unknown {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  return asRecord(value)?.value ?? value;
+}
+
+function relatedIssueField(value: unknown): Record<string, unknown> {
+  const issue = asRecord(value);
+  const fields = asRecord(issue?.fields);
+
+  return {
+    key: issue?.key,
+    summary: fields?.summary,
+    type: namedField(fields?.issuetype),
+    status: namedField(fields?.status),
+  };
+}
+
+function issueLinksField(value: unknown): unknown[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((entry) => {
+    const link = asRecord(entry);
+    const type = asRecord(link?.type);
+    const outward = asRecord(link?.outwardIssue);
+    const inward = asRecord(link?.inwardIssue);
+    const issue = outward ?? inward;
+    const fields = asRecord(issue?.fields);
+
+    return {
+      relationship: outward !== undefined ? type?.outward : type?.inward,
+      key: issue?.key,
+      summary: fields?.summary,
+      type: namedField(fields?.issuetype),
+      status: namedField(fields?.status),
+    };
+  });
+}
+
+function pullRequestsField(providerDevStatus: unknown): unknown[] {
+  const parsedResult = jiraDevStatusSchema.safeParse(providerDevStatus);
+
+  if (!parsedResult.success) {
+    throw new JiraNormalizedOutputError(
+      parsedResult.error.issues.map((issue) => ({
+        code: issue.code,
+        message: issue.message,
+        path: `devStatus.${issue.path.join(".")}`,
+      })),
+      "Jira dev-status output failed validation",
+    );
+  }
+
+  return parsedResult.data.detail.flatMap((entry) => {
+    return entry.pullRequests.map((pullRequestValue) => {
+      const pullRequest = asRecord(pullRequestValue);
+
+      return {
+        title: pullRequest?.name,
+        url: pullRequest?.url,
+        status: pullRequest?.status,
+        branch: asRecord(pullRequest?.source)?.branch,
+        repository: pullRequest?.repositoryName,
+        author: asRecord(pullRequest?.author)?.name,
+        updated: normalizeTimestamp(pullRequest?.lastUpdate),
+      };
+    });
+  });
+}
+
+function normalizeEnrichedJiraIssue(
+  providerIssue: unknown,
+  providerCommentPages: unknown[],
+  providerDevStatus: unknown,
+): NormalizedEnrichedJiraIssue {
+  const issue = asRecord(providerIssue);
+  const fields = asRecord(issue?.fields);
+  const comments = providerCommentPages.flatMap((pageValue) => {
+    const pageComments = asRecord(pageValue)?.comments;
+    return Array.isArray(pageComments) ? pageComments : [];
+  });
+  const normalized: Record<string, unknown> = {
+    ...normalizeJiraIssueBase(providerIssue),
+    testPlan: qaRichTextField(fields?.[JIRA_TEST_PLAN_FIELD_ID], "testPlan"),
+    regressionTestingGuidance: qaRichTextField(
+      fields?.[JIRA_REGRESSION_TESTING_GUIDANCE_FIELD_ID],
+      "regressionTestingGuidance",
+    ),
+    regression: optionValueField(fields?.[JIRA_REGRESSION_FIELD_ID]),
+    parent:
+      fields?.parent === null || fields?.parent === undefined
+        ? null
+        : relatedIssueField(fields.parent),
+    subtasks: Array.isArray(fields?.subtasks)
+      ? fields.subtasks.map(relatedIssueField)
+      : [],
+    issueLinks: issueLinksField(fields?.issuelinks),
+    comments: comments.map(normalizeJiraComment),
+    pullRequests: pullRequestsField(providerDevStatus),
+  };
+  const parsedResult = normalizedEnrichedJiraIssueSchema.safeParse(normalized);
 
   if (!parsedResult.success) {
     throw new JiraNormalizedOutputError(
@@ -695,6 +911,183 @@ export async function getJiraIssue(
   }
 
   return normalizeJiraIssue(body);
+}
+
+export async function fetchAllJiraCommentPages(
+  config: ResolvedConfig,
+  key: string,
+  options: JiraIssueGetOptions,
+): Promise<unknown[]> {
+  const pages: unknown[] = [];
+  let startAt = 0;
+
+  while (true) {
+    const pageValue = await listJiraIssueComments(config, key, {
+      limit: 100,
+      cursor: String(startAt),
+      raw: true,
+      fetchImpl: options.fetchImpl,
+      debugRequests: options.debugRequests,
+    });
+    const parsedPage = jiraCommentPageSchema.safeParse(pageValue);
+
+    if (!parsedPage.success) {
+      throw new JiraNormalizedOutputError(
+        parsedPage.error.issues.map((issueError) => ({
+          code: issueError.code,
+          message: issueError.message,
+          path: `commentsPage.${issueError.path.join(".")}`,
+        })),
+        "Jira comment pagination output failed validation",
+      );
+    }
+
+    const page = parsedPage.data;
+
+    if (page.startAt !== startAt) {
+      throw new JiraNormalizedOutputError(
+        [{
+          code: "invalid_pagination",
+          message: `Expected comment page ${startAt}, received ${page.startAt}`,
+          path: "commentsPage.startAt",
+        }],
+        "Jira comment pagination did not advance as requested",
+      );
+    }
+
+    pages.push(pageValue);
+
+    const nextStart = page.startAt + page.comments.length;
+
+    if (nextStart > page.total) {
+      throw new JiraNormalizedOutputError(
+        [{
+          code: "invalid_pagination",
+          message: "Comment page exceeded the reported total",
+          path: "commentsPage.total",
+        }],
+        "Jira comment pagination output was inconsistent",
+      );
+    }
+
+    if (nextStart >= page.total) {
+      break;
+    }
+
+    if (page.comments.length === 0) {
+      throw new JiraNormalizedOutputError(
+        [{
+          code: "invalid_pagination",
+          message: "Comment page was empty before reaching the reported total",
+          path: "commentsPage.comments",
+        }],
+        "Jira comment pagination did not advance",
+      );
+    }
+
+    startAt = nextStart;
+  }
+
+  return pages;
+}
+
+async function getJiraDevStatusDetail(
+  config: ResolvedConfig & {
+    jira: {
+      baseUrl: { value: string };
+      email: { value: string };
+      apiToken: { value: string };
+    };
+  },
+  issueId: string,
+  options: JiraIssueGetOptions,
+): Promise<unknown> {
+  const url = new URL(
+    `${normalizeBaseUrl(config.jira.baseUrl.value)}/rest/dev-status/latest/issue/detail`,
+  );
+  url.searchParams.set("issueId", issueId);
+  url.searchParams.set("applicationType", "bitbucket");
+  url.searchParams.set("dataType", "pullrequest");
+
+  const startedAt = Date.now();
+  const fetchImpl = options.fetchImpl ?? fetch;
+  let response: Response;
+
+  try {
+    response = await fetchImpl(String(url), {
+      headers: {
+        accept: "application/json",
+        authorization: basicAuthorization(
+          config.jira.email.value,
+          config.jira.apiToken.value,
+        ),
+      },
+    });
+  } catch {
+    options.debugRequests?.push({
+      provider: "jira",
+      method: "GET",
+      url: String(url),
+      latencyMs: Date.now() - startedAt,
+    });
+    throw new JiraNetworkError();
+  }
+
+  options.debugRequests?.push({
+    provider: "jira",
+    method: "GET",
+    url: String(url),
+    status: response.status,
+    latencyMs: Date.now() - startedAt,
+  });
+
+  if (response.status === 401 || response.status === 403) {
+    throw new JiraAuthenticationError(response.status);
+  }
+
+  if (!response.ok) {
+    throw new JiraProviderError(
+      "Jira provider request failed",
+      response.status,
+    );
+  }
+
+  const body = await readProviderJson(response);
+  const errors = asRecord(body)?.errors;
+
+  if (Array.isArray(errors) && errors.length > 0) {
+    throw new JiraProviderError("Jira dev-status endpoint reported errors");
+  }
+
+  return body;
+}
+
+export async function getEnrichedJiraIssue(
+  config: ResolvedConfig,
+  key: string,
+  options: JiraIssueGetOptions = {},
+): Promise<unknown> {
+  assertJiraConfigComplete(config);
+
+  const issue = await getJiraIssue(config, key, {
+    raw: true,
+    fetchImpl: options.fetchImpl,
+    debugRequests: options.debugRequests,
+  });
+  const commentPages = await fetchAllJiraCommentPages(config, key, options);
+  const issueId = asRecord(issue)?.id;
+
+  if (typeof issueId !== "string" && typeof issueId !== "number") {
+    throw new JiraProviderError("Jira issue payload did not include an issue id");
+  }
+
+  const devStatus = await getJiraDevStatusDetail(config, String(issueId), options);
+
+  if (options.raw) {
+    return { issue, comments: commentPages, pullRequests: devStatus };
+  }
+
+  return normalizeEnrichedJiraIssue(issue, commentPages, devStatus);
 }
 
 export const jiraProvider: Provider = {

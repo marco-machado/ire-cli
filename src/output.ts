@@ -11,7 +11,7 @@ import {
 
 export type SuccessEnvelope = {
   success: true;
-  schemaVersion: "1.0";
+  schemaVersion: "1.0" | "1.1";
   data: unknown;
   meta: Record<string, unknown>;
 };
