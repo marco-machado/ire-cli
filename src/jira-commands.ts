@@ -15,7 +15,9 @@ export function registerJiraCommands(program: Command): void {
 
   jiraIssueCommand
     .command("get")
-    .description("Fetch a Jira issue by explicit key")
+    .description(
+      "Fetch a Jira issue in full detail: QA fields, hierarchy, links, comments, and pull requests",
+    )
     .argument("[key]", "Jira issue key")
     .option("--raw", "Return the provider-native Jira payload")
     .option("--debug", "Include redacted provider request metadata")
