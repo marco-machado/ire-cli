@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import { resolveConfig } from "./config.js";
 import {
-  getJiraIssue,
+  getEnrichedJiraIssue,
   listJiraIssueComments,
   searchJiraIssues,
   type JiraDebugRequest,
@@ -45,12 +45,12 @@ export function registerJiraCommands(program: Command): void {
         }
 
         const config = resolveConfig({ flags, redactSecrets: false });
-        const data = await getJiraIssue(config, key, {
+        const data = await getEnrichedJiraIssue(config, key, {
           raw: flags.raw,
           debugRequests: flags.debug ? debugRequests : undefined,
         });
 
-        writeEnvelope({ success: true, schemaVersion: "1.0", data, meta });
+        writeEnvelope({ success: true, schemaVersion: "1.1", data, meta });
       } catch (error) {
         if (handleProviderError(error, meta)) return;
         writeEnvelope({
