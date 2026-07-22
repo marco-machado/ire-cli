@@ -1052,7 +1052,14 @@ async function getJiraDevStatusDetail(
     );
   }
 
-  return readProviderJson(response);
+  const body = await readProviderJson(response);
+  const errors = asRecord(body)?.errors;
+
+  if (Array.isArray(errors) && errors.length > 0) {
+    throw new JiraProviderError("Jira dev-status endpoint reported errors");
+  }
+
+  return body;
 }
 
 export async function getEnrichedJiraIssue(
