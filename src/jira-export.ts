@@ -8,12 +8,12 @@ import { adfToMarkdown, isAdfDocument } from "./adf.js";
 import type { ResolvedConfig } from "./config.js";
 import { IreConfigurationError } from "./errors.js";
 import {
+  fetchAllJiraCommentPages,
   getJiraIssue,
   JiraAuthenticationError,
   JiraNetworkError,
   JiraNormalizedOutputError,
   JiraProviderError,
-  listJiraIssueComments,
   type JiraDebugRequest,
 } from "./jira.js";
 
@@ -43,13 +43,6 @@ const adfDocumentSchema = z
   .passthrough();
 
 const richTextSchema = z.union([z.string(), adfDocumentSchema]).nullable();
-const jiraCommentPageSchema = z
-  .object({
-    startAt: z.number().int().nonnegative(),
-    total: z.number().int().nonnegative(),
-    comments: z.array(z.unknown()),
-  })
-  .passthrough();
 
 const jiraIssueExportSchema = z
   .object({
@@ -255,77 +248,22 @@ async function getAllComments(
   format: AdfFormat,
   debugRequests: JiraDebugRequest[] | undefined,
 ): Promise<unknown[]> {
-  const comments: unknown[] = [];
-  let startAt = 0;
+  const pages = await fetchAllJiraCommentPages(config, key, { debugRequests });
 
-  while (true) {
-    const pageValue = await listJiraIssueComments(config, key, {
-      limit: 100,
-      cursor: String(startAt),
-      raw: true,
-      debugRequests,
-    });
-    const parsedPage = jiraCommentPageSchema.safeParse(pageValue);
-    if (!parsedPage.success) {
-      throw new JiraNormalizedOutputError(
-        parsedPage.error.issues.map((issueError) => ({
-          code: issueError.code,
-          message: issueError.message,
-          path: `commentsPage.${issueError.path.join(".")}`,
-        })),
-        "Jira comment pagination output failed validation",
-      );
-    }
-    const page = parsedPage.data;
-    if (page.startAt !== startAt) {
-      throw new JiraNormalizedOutputError(
-        [{
-          code: "invalid_pagination",
-          message: `Expected comment page ${startAt}, received ${page.startAt}`,
-          path: "commentsPage.startAt",
-        }],
-        "Jira comment pagination did not advance as requested",
-      );
-    }
-    const pageComments = page.comments;
+  return pages.flatMap((pageValue) => {
+    const pageComments = asRecord(pageValue)?.comments;
 
-    comments.push(
-      ...pageComments.map((commentValue) => {
+    return (Array.isArray(pageComments) ? pageComments : []).map(
+      (commentValue) => {
         const comment = asRecord(commentValue);
         return {
           author: normalizeUser(comment?.author),
           created: normalizeTimestamp(comment?.created),
           body: renderRichText(comment?.body, format),
         };
-      }),
+      },
     );
-
-    const nextStart = page.startAt + pageComments.length;
-    if (nextStart > page.total) {
-      throw new JiraNormalizedOutputError(
-        [{
-          code: "invalid_pagination",
-          message: "Comment page exceeded the reported total",
-          path: "commentsPage.total",
-        }],
-        "Jira comment pagination output was inconsistent",
-      );
-    }
-    if (nextStart >= page.total) break;
-    if (pageComments.length === 0) {
-      throw new JiraNormalizedOutputError(
-        [{
-          code: "invalid_pagination",
-          message: "Comment page was empty before reaching the reported total",
-          path: "commentsPage.comments",
-        }],
-        "Jira comment pagination did not advance",
-      );
-    }
-    startAt = nextStart;
-  }
-
-  return comments;
+  });
 }
 
 function attachmentFilename(filename: string): string {

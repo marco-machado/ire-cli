@@ -888,7 +888,7 @@ export async function getJiraIssue(
   return normalizeJiraIssue(body);
 }
 
-async function fetchAllJiraCommentPages(
+export async function fetchAllJiraCommentPages(
   config: ResolvedConfig,
   key: string,
   options: JiraIssueGetOptions,
