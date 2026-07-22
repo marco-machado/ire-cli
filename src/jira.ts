@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isAdfDocument } from "./adf.js";
 import { checkProviderAuth } from "./auth.js";
 import type { ResolvedConfig } from "./config.js";
 import {
@@ -406,6 +407,29 @@ function descriptionField(value: unknown): string | null | undefined {
   return adfToPlainText(value);
 }
 
+function qaRichTextField(value: unknown, path: string): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (isAdfDocument(value)) {
+    return adfToPlainText(value) ?? null;
+  }
+
+  throw new JiraNormalizedOutputError(
+    [{
+      code: "invalid_rich_text",
+      message: "QA field is neither a string nor an ADF document",
+      path,
+    }],
+    "Jira QA field output failed validation",
+  );
+}
+
 function normalizeJiraIssueSummary(providerIssue: unknown): Record<string, unknown> {
   const issue = asRecord(providerIssue);
   const fields = asRecord(issue?.fields);
@@ -568,10 +592,11 @@ function normalizeEnrichedJiraIssue(
   });
   const normalized: Record<string, unknown> = {
     ...normalizeJiraIssueBase(providerIssue),
-    testPlan: descriptionField(fields?.[JIRA_TEST_PLAN_FIELD_ID] ?? null) ?? null,
-    regressionTestingGuidance:
-      descriptionField(fields?.[JIRA_REGRESSION_TESTING_GUIDANCE_FIELD_ID] ?? null)
-        ?? null,
+    testPlan: qaRichTextField(fields?.[JIRA_TEST_PLAN_FIELD_ID], "testPlan"),
+    regressionTestingGuidance: qaRichTextField(
+      fields?.[JIRA_REGRESSION_TESTING_GUIDANCE_FIELD_ID],
+      "regressionTestingGuidance",
+    ),
     regression: optionValueField(fields?.[JIRA_REGRESSION_FIELD_ID]),
     parent:
       fields?.parent === null || fields?.parent === undefined
