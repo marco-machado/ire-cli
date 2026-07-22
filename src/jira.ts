@@ -247,6 +247,14 @@ const jiraCommentPageSchema = z
   })
   .passthrough();
 
+const jiraDevStatusSchema = z
+  .object({
+    detail: z.array(
+      z.object({ pullRequests: z.array(z.unknown()) }).passthrough(),
+    ),
+  })
+  .passthrough();
+
 export type NormalizedJiraIssue = z.infer<typeof normalizedJiraIssueSchema>;
 export type NormalizedEnrichedJiraIssue = z.infer<
   typeof normalizedEnrichedJiraIssueSchema
@@ -517,20 +525,21 @@ function issueLinksField(value: unknown): unknown[] {
 }
 
 function pullRequestsField(providerDevStatus: unknown): unknown[] {
-  const detail = asRecord(providerDevStatus)?.detail;
+  const parsedResult = jiraDevStatusSchema.safeParse(providerDevStatus);
 
-  if (!Array.isArray(detail)) {
-    return [];
+  if (!parsedResult.success) {
+    throw new JiraNormalizedOutputError(
+      parsedResult.error.issues.map((issue) => ({
+        code: issue.code,
+        message: issue.message,
+        path: `devStatus.${issue.path.join(".")}`,
+      })),
+      "Jira dev-status output failed validation",
+    );
   }
 
-  return detail.flatMap((entry) => {
-    const pullRequests = asRecord(entry)?.pullRequests;
-
-    if (!Array.isArray(pullRequests)) {
-      return [];
-    }
-
-    return pullRequests.map((pullRequestValue) => {
+  return parsedResult.data.detail.flatMap((entry) => {
+    return entry.pullRequests.map((pullRequestValue) => {
       const pullRequest = asRecord(pullRequestValue);
 
       return {

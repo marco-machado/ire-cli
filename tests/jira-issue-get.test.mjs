@@ -462,6 +462,61 @@ test("jira issue get fails when the dev-status request fails", async () => {
   assert.equal("data" in envelope, false);
 });
 
+test("jira issue get fails when the dev-status payload shape drifts", async () => {
+  const hookPath = await writeFetchHook(`
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+
+      if (url === "https://jira.example.test/rest/api/3/issue/ABC-123") {
+        return Response.json({
+          id: "10001",
+          key: "ABC-123",
+          fields: {
+            summary: "Dev status drift",
+            status: { name: "In Progress" },
+            issuetype: { name: "Bug" },
+            project: { key: "ABC", name: "Agent Bridge" },
+            labels: [],
+            created: "2026-05-04T12:34:56.000+0000",
+            updated: "2026-05-04T13:45:01.000+0000"
+          }
+        });
+      }
+
+      if (url === "https://jira.example.test/rest/api/3/issue/ABC-123/comment?maxResults=100&startAt=0") {
+        return Response.json({ startAt: 0, maxResults: 100, total: 0, comments: [] });
+      }
+
+      if (url === "https://jira.example.test/rest/dev-status/latest/issue/detail?issueId=10001&applicationType=bitbucket&dataType=pullrequest") {
+        return Response.json({ errors: [], details: [{ pullRequests: [] }] });
+      }
+
+      return Response.json({ message: "unexpected url", url }, { status: 500 });
+    };
+  `);
+
+  const result = await runIre(["jira", "issue", "get", "ABC-123"], {
+    nodeArgs: ["--import", hookPath],
+    env: {
+      IRE_JIRA_BASE_URL: "https://jira.example.test",
+      IRE_JIRA_EMAIL: "agent@example.test",
+      IRE_JIRA_API_TOKEN: "jira-secret",
+    },
+  });
+  const envelope = parseJson(result.stdout);
+
+  assert.equal(result.exitCode, 1);
+  assert.equal(result.stderr, "");
+  assert.equal(envelope.success, false);
+  assert.equal(envelope.error.code, "INTERNAL_ERROR");
+  assert.equal(envelope.error.message, "Jira dev-status output failed validation");
+  assert.equal(
+    envelope.error.details.some((detail) => detail.path === "devStatus.detail"),
+    true,
+  );
+  assert.equal("data" in envelope, false);
+});
+
 test("jira issue get --raw returns the provider-native payload bundle in a success envelope", async () => {
   const providerIssuePayload = {
     id: "10002",
