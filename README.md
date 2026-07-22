@@ -123,6 +123,8 @@ Failures use the same envelope:
 }
 ```
 
+`schemaVersion` states the `data` contract: `1.1` for `jira issue get` success envelopes, `1.0` everywhere else.
+
 Default output is normalized for agents. Use `--raw` on supported commands to return provider-native payloads inside `data`.
 
 Optional fields are omitted when absent. Known-empty provider values are represented as `null`. `undefined` is never emitted.
@@ -231,9 +233,33 @@ Jira config flags are:
 --jira-api-token <token>
 ```
 
+#### Jira issue get
+
+`ire jira issue get KEY` fetches one work item in full normalized detail: header fields, QA fields, hierarchy, linked work items, the complete comment list, and development-panel pull requests. It performs several provider requests and fails whole when any of them fails.
+
+The success envelope has `schemaVersion: "1.1"`; its `data` contract is:
+
+| Field | Type |
+| --- | --- |
+| `key`, `summary`, `status`, `issueType`, `created`, `updated` | `string` (`created`/`updated` are UTC ISO-8601) |
+| `description`, `priority` | `string \| null`, omitted when absent |
+| `project` | `{ key: string, name: string }` |
+| `assignee`, `reporter` | `{ accountId: string, displayName: string } \| null`, omitted when absent |
+| `labels` | `string[]` |
+| `testPlan`, `regressionTestingGuidance`, `regression` | `string \| null` |
+| `parent` | `{ key, summary, type, status } \| null` |
+| `subtasks` | `{ key, summary, type, status }[]` |
+| `issueLinks` | `{ relationship, key, summary, type, status }[]` |
+| `comments` | `{ id, author, body, created, updated }[]`, complete across all comment pages |
+| `pullRequests` | `{ title, url, status, branch, repository, author, updated }[]` |
+
+Rich text (`description`, comment bodies, `testPlan`, `regressionTestingGuidance`) is rendered as plain text. `testPlan`, `regressionTestingGuidance`, and `regression` resolve from field ids built in for the target Jira instance (`customfield_11747`, `customfield_12213`, `customfield_11734`); `regression` carries the selected option's value, and unset fields are `null` on any instance. `pullRequests` reads the Jira development panel through the private `dev-status` endpoint, filtered to Bitbucket; the endpoint is undocumented, and the strict failure mode makes a provider change loud rather than silent.
+
+`--raw` returns every provider payload the command fetched as `{ issue, comments, pullRequests }`, with `comments` as the raw comment pages.
+
 #### Complete Jira issue export
 
-`ire jira issue export KEY` emits one curated issue record containing normalized header fields, sprint/story-point data, a nullable parent, configured semantic fields, all comments, attachment metadata, subtasks, and issue links. It keeps `jira issue get` backward-compatible.
+`ire jira issue export KEY` emits one curated issue record containing normalized header fields, sprint/story-point data, a nullable parent, configured semantic fields, all comments, attachment metadata, subtasks, and issue links.
 
 The standard success envelope has `schemaVersion: "1.0"`; its `data` contract is:
 
@@ -260,7 +286,7 @@ Configure instance-specific Jira fields under `jira.issueExport.fieldMappings`. 
 
 `--download-attachments <dir>` downloads attachment bytes with Jira authentication after validating the export. Provider filenames are reduced to safe basenames, and existing same-name files are overwritten. The JSON export still goes to stdout.
 
-Development-panel pull requests are not included because Jira Cloud has no supported public API for reading them. The export does not use private `dev-status` endpoints or heuristic branch matching.
+Development-panel pull requests are not part of the export; `ire jira issue get` returns them. The export does not use heuristic branch matching.
 
 ### Bitbucket pull requests
 
