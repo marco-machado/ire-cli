@@ -559,9 +559,10 @@ function normalizeEnrichedJiraIssue(
   });
   const normalized: Record<string, unknown> = {
     ...normalizeJiraIssueBase(providerIssue),
-    testPlan: fields?.[JIRA_TEST_PLAN_FIELD_ID] ?? null,
+    testPlan: descriptionField(fields?.[JIRA_TEST_PLAN_FIELD_ID] ?? null) ?? null,
     regressionTestingGuidance:
-      fields?.[JIRA_REGRESSION_TESTING_GUIDANCE_FIELD_ID] ?? null,
+      descriptionField(fields?.[JIRA_REGRESSION_TESTING_GUIDANCE_FIELD_ID] ?? null)
+        ?? null,
     regression: optionValueField(fields?.[JIRA_REGRESSION_FIELD_ID]),
     parent:
       fields?.parent === null || fields?.parent === undefined

@@ -266,6 +266,79 @@ test("jira issue get fetches an explicit key and emits an enriched normalized is
   assert.deepEqual(envelope.meta, {});
 });
 
+test("jira issue get renders rich-text QA custom fields to plain text", async () => {
+  const hookPath = await writeFetchHook(`
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+
+      if (url === "https://jira.example.test/rest/api/3/issue/ABC-123") {
+        return Response.json({
+          id: "10001",
+          key: "ABC-123",
+          fields: {
+            summary: "Rich text custom fields",
+            status: { name: "In Progress" },
+            issuetype: { name: "Bug" },
+            project: { key: "ABC", name: "Agent Bridge" },
+            labels: [],
+            created: "2026-05-04T12:34:56.000+0000",
+            updated: "2026-05-04T13:45:01.000+0000",
+            customfield_11747: {
+              type: "doc",
+              version: 1,
+              content: [
+                {
+                  type: "paragraph",
+                  content: [{ type: "text", text: "Exercise the enriched envelope" }]
+                }
+              ]
+            },
+            customfield_12213: {
+              type: "doc",
+              version: 1,
+              content: [
+                {
+                  type: "paragraph",
+                  content: [{ type: "text", text: "Cover the jira read commands" }]
+                }
+              ]
+            }
+          }
+        });
+      }
+
+      if (url === "https://jira.example.test/rest/api/3/issue/ABC-123/comment?maxResults=100&startAt=0") {
+        return Response.json({ startAt: 0, maxResults: 100, total: 0, comments: [] });
+      }
+
+      if (url === "https://jira.example.test/rest/dev-status/latest/issue/detail?issueId=10001&applicationType=bitbucket&dataType=pullrequest") {
+        return Response.json({ errors: [], detail: [] });
+      }
+
+      return Response.json({ message: "unexpected url", url }, { status: 500 });
+    };
+  `);
+
+  const result = await runIre(["jira", "issue", "get", "ABC-123"], {
+    nodeArgs: ["--import", hookPath],
+    env: {
+      IRE_JIRA_BASE_URL: "https://jira.example.test",
+      IRE_JIRA_EMAIL: "agent@example.test",
+      IRE_JIRA_API_TOKEN: "jira-secret",
+    },
+  });
+  const envelope = parseJson(result.stdout);
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(envelope.success, true);
+  assert.equal(envelope.data.testPlan, "Exercise the enriched envelope");
+  assert.equal(
+    envelope.data.regressionTestingGuidance,
+    "Cover the jira read commands",
+  );
+});
+
 test("jira issue get collects comments across multiple pages", async () => {
   const commentAt = (index) => ({
     id: String(9000 + index),
