@@ -126,6 +126,17 @@ test("jira issue get fetches an explicit key and emits an enriched normalized is
                     status: { name: "To Do" }
                   }
                 }
+              },
+              {
+                type: { name: "Blocks", inward: "is blocked by", outward: "blocks" },
+                inwardIssue: {
+                  key: "ABC-150",
+                  fields: {
+                    summary: "Upstream dependency",
+                    issuetype: { name: "Bug" },
+                    status: { name: "In Progress" }
+                  }
+                }
               }
             ]
           }
@@ -240,6 +251,13 @@ test("jira issue get fetches an explicit key and emits an enriched normalized is
         summary: "Release checklist",
         type: "Task",
         status: "To Do",
+      },
+      {
+        relationship: "is blocked by",
+        key: "ABC-150",
+        summary: "Upstream dependency",
+        type: "Bug",
+        status: "In Progress",
       },
     ],
     comments: [
