@@ -18,7 +18,7 @@ type JsonRecord = Record<string, unknown>;
 
 export type JiraDebugRequest = {
   provider: "jira";
-  method: "GET";
+  method: "GET" | "POST";
   url: string;
   status?: number;
   latencyMs: number;
@@ -194,6 +194,16 @@ const normalizedJiraIssueCommentsListSchema = z
 const JIRA_TEST_PLAN_FIELD_ID = "customfield_11747";
 const JIRA_REGRESSION_TESTING_GUIDANCE_FIELD_ID = "customfield_12213";
 const JIRA_REGRESSION_FIELD_ID = "customfield_11734";
+const JIRA_ISSUE_SEARCH_FIELDS = [
+  "key",
+  "summary",
+  "status",
+  "issuetype",
+  "priority",
+  "assignee",
+  "created",
+  "updated",
+];
 
 const relatedIssueSchema = z
   .object({
@@ -624,7 +634,7 @@ function normalizeEnrichedJiraIssue(
   return parsedResult.data;
 }
 
-function paginationFromProvider(
+function offsetPaginationFromProvider(
   providerPage: JsonRecord | undefined,
   limit: number,
 ): z.infer<typeof paginationSchema> {
@@ -640,6 +650,23 @@ function paginationFromProvider(
   };
 }
 
+function tokenPaginationFromProvider(
+  providerPage: JsonRecord | undefined,
+  limit: number,
+): z.infer<typeof paginationSchema> {
+  const nextCursor =
+    typeof providerPage?.nextPageToken === "string" &&
+    providerPage.nextPageToken.length > 0
+      ? providerPage.nextPageToken
+      : null;
+
+  return {
+    limit,
+    nextCursor,
+    hasNextPage: nextCursor !== null,
+  };
+}
+
 function normalizeJiraIssueSearch(
   providerSearch: unknown,
   limit: number,
@@ -648,7 +675,7 @@ function normalizeJiraIssueSearch(
   const issues = Array.isArray(search?.issues) ? search.issues : [];
   const normalized = {
     issues: issues.map(normalizeJiraIssueSummary),
-    pagination: paginationFromProvider(search, limit),
+    pagination: tokenPaginationFromProvider(search, limit),
   };
   const parsedResult = normalizedJiraIssueSearchSchema.safeParse(normalized);
 
@@ -690,7 +717,7 @@ function normalizeJiraIssueCommentsList(
   const comments = Array.isArray(page?.comments) ? page.comments : [];
   const normalized = {
     comments: comments.map(normalizeJiraComment),
-    pagination: paginationFromProvider(page, limit),
+    pagination: offsetPaginationFromProvider(page, limit),
   };
   const parsedResult = normalizedJiraIssueCommentsListSchema.safeParse(normalized);
 
@@ -726,13 +753,18 @@ export async function searchJiraIssues(
   assertJiraConfigComplete(config);
 
   const limit = options.limit ?? 50;
-  const startAt = options.cursor ?? "0";
   const url = new URL(
-    `${normalizeBaseUrl(config.jira.baseUrl.value)}/rest/api/3/search`,
+    `${normalizeBaseUrl(config.jira.baseUrl.value)}/rest/api/3/search/jql`,
   );
-  url.searchParams.set("jql", options.jql);
-  url.searchParams.set("maxResults", String(limit));
-  url.searchParams.set("startAt", startAt);
+  const requestBody: Record<string, unknown> = {
+    jql: options.jql,
+    maxResults: limit,
+    fields: JIRA_ISSUE_SEARCH_FIELDS,
+  };
+
+  if (options.cursor !== undefined) {
+    requestBody.nextPageToken = options.cursor;
+  }
 
   const startedAt = Date.now();
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -740,18 +772,21 @@ export async function searchJiraIssues(
 
   try {
     response = await fetchImpl(String(url), {
+      method: "POST",
       headers: {
         accept: "application/json",
         authorization: basicAuthorization(
           config.jira.email.value,
           config.jira.apiToken.value,
         ),
+        "content-type": "application/json",
       },
+      body: JSON.stringify(requestBody),
     });
   } catch {
     options.debugRequests?.push({
       provider: "jira",
-      method: "GET",
+      method: "POST",
       url: String(url),
       latencyMs: Date.now() - startedAt,
     });
@@ -760,7 +795,7 @@ export async function searchJiraIssues(
 
   options.debugRequests?.push({
     provider: "jira",
-    method: "GET",
+    method: "POST",
     url: String(url),
     status: response.status,
     latencyMs: Date.now() - startedAt,

@@ -351,6 +351,8 @@ default limit: 50
 maximum limit: 100
 ```
 
+For `ire jira issue search`, the cursor is an opaque Jira continuation token. Pass only the exact `pagination.nextCursor` value from the preceding response; do not derive or increment it. Jira search cursors expire after seven days.
+
 Responses include pagination metadata inside `data`. For example, Jira search returns:
 
 ```json
@@ -401,4 +403,3 @@ npm ci
 npm test
 npm run build
 ```
-

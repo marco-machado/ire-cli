@@ -60,20 +60,38 @@ test("jira issue search runs JQL with the default limit and emits normalized pag
       const url = new URL(String(input));
       const headers = new Headers(init.headers);
 
-      if (url.origin + url.pathname !== "https://jira.example.test/rest/api/3/search") {
+      if (url.origin + url.pathname === "https://jira.example.test/rest/api/3/search") {
+        return Response.json({ message: "deprecated endpoint used" }, { status: 410 });
+      }
+
+      if (url.origin + url.pathname !== "https://jira.example.test/rest/api/3/search/jql") {
         return Response.json({ message: "unexpected url", url: String(input) }, { status: 500 });
       }
 
-      if (url.searchParams.get("jql") !== "project = ABC ORDER BY updated DESC") {
-        return Response.json({ message: "unexpected jql", jql: url.searchParams.get("jql") }, { status: 500 });
+      if (init.method !== "POST") {
+        return Response.json({ message: "unexpected method", method: init.method }, { status: 500 });
       }
 
-      if (url.searchParams.get("maxResults") !== "50") {
-        return Response.json({ message: "unexpected maxResults", maxResults: url.searchParams.get("maxResults") }, { status: 500 });
+      if (url.search !== "") {
+        return Response.json({ message: "unexpected query string", search: url.search }, { status: 500 });
       }
 
-      if (url.searchParams.get("startAt") !== "0") {
-        return Response.json({ message: "unexpected startAt", startAt: url.searchParams.get("startAt") }, { status: 500 });
+      if (headers.get("content-type") !== "application/json") {
+        return Response.json({ message: "unexpected content type" }, { status: 500 });
+      }
+
+      if (headers.get("accept") !== "application/json") {
+        return Response.json({ message: "unexpected accept header" }, { status: 500 });
+      }
+
+      const body = JSON.parse(init.body);
+      const expectedBody = {
+        jql: "project = ABC ORDER BY updated DESC",
+        maxResults: 50,
+        fields: ["key", "summary", "status", "issuetype", "priority", "assignee", "created", "updated"]
+      };
+      if (JSON.stringify(body) !== JSON.stringify(expectedBody)) {
+        return Response.json({ message: "unexpected body", body }, { status: 500 });
       }
 
       const expectedAuthorization = "Basic " + Buffer.from("agent@example.test:jira-secret").toString("base64");
@@ -82,9 +100,8 @@ test("jira issue search runs JQL with the default limit and emits normalized pag
       }
 
       return Response.json({
-        startAt: 0,
-        maxResults: 50,
-        total: 51,
+        isLast: false,
+        nextPageToken: "opaque-next-page-token",
         issues: [
           {
             key: "ABC-123",
@@ -136,7 +153,7 @@ test("jira issue search runs JQL with the default limit and emits normalized pag
     ],
     pagination: {
       limit: 50,
-      nextCursor: "50",
+      nextCursor: "opaque-next-page-token",
       hasNextPage: true,
     },
   });
@@ -179,28 +196,39 @@ test("jira issue search rejects limits above 100 before network calls", async ()
 
 test("jira issue search propagates limit and cursor and emits last-page pagination metadata", async () => {
   const hookPath = await writeFetchHook(`
-    globalThis.fetch = async (input) => {
+    globalThis.fetch = async (input, init = {}) => {
       const url = new URL(String(input));
+      const body = JSON.parse(init.body);
 
-      if (url.searchParams.get("maxResults") !== "25") {
-        return Response.json({ message: "unexpected maxResults", maxResults: url.searchParams.get("maxResults") }, { status: 500 });
+      if (url.origin + url.pathname !== "https://jira.example.test/rest/api/3/search/jql") {
+        return Response.json({ message: "unexpected url", url: String(input) }, { status: 500 });
       }
 
-      if (url.searchParams.get("startAt") !== "50") {
-        return Response.json({ message: "unexpected startAt", startAt: url.searchParams.get("startAt") }, { status: 500 });
+      if (init.method !== "POST") {
+        return Response.json({ message: "unexpected method", method: init.method }, { status: 500 });
+      }
+
+      if (body.maxResults !== 25) {
+        return Response.json({ message: "unexpected maxResults", maxResults: body.maxResults }, { status: 500 });
+      }
+
+      if (body.nextPageToken !== "opaque-current-page-token") {
+        return Response.json({ message: "unexpected nextPageToken", nextPageToken: body.nextPageToken }, { status: 500 });
+      }
+
+      if ("startAt" in body) {
+        return Response.json({ message: "unexpected startAt", startAt: body.startAt }, { status: 500 });
       }
 
       return Response.json({
-        startAt: 50,
-        maxResults: 25,
-        total: 60,
+        isLast: true,
         issues: []
       });
     };
   `);
 
   const result = await runIre(
-    ["jira", "issue", "search", "--jql", "project = ABC", "--limit", "25", "--cursor", "50"],
+    ["jira", "issue", "search", "--jql", "project = ABC", "--limit", "25", "--cursor", "opaque-current-page-token"],
     {
       nodeArgs: ["--import", hookPath],
       env: {
@@ -222,6 +250,38 @@ test("jira issue search propagates limit and cursor and emits last-page paginati
       hasNextPage: false,
     },
   });
+});
+
+test("jira issue search debug metadata reports the enhanced POST request without credentials", async () => {
+  const hookPath = await writeFetchHook(`
+    globalThis.fetch = async () => Response.json({ isLast: true, issues: [] });
+  `);
+
+  const result = await runIre(
+    ["jira", "issue", "search", "--jql", "project = ABC", "--debug"],
+    {
+      nodeArgs: ["--import", hookPath],
+      env: {
+        IRE_JIRA_BASE_URL: "https://jira.example.test",
+        IRE_JIRA_EMAIL: "agent@example.test",
+        IRE_JIRA_API_TOKEN: "jira-secret",
+      },
+    },
+  );
+  const envelope = parseJson(result.stdout);
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(result.stdout.includes("jira-secret"), false);
+  assert.equal(result.stdout.includes("agent@example.test"), false);
+  assert.deepEqual(envelope.meta.debug.requests[0], {
+    provider: "jira",
+    method: "POST",
+    url: "https://jira.example.test/rest/api/3/search/jql",
+    status: 200,
+    latencyMs: envelope.meta.debug.requests[0].latencyMs,
+  });
+  assert.equal(typeof envelope.meta.debug.requests[0].latencyMs, "number");
 });
 
 test("jira issue search requires JQL before network calls", async () => {
