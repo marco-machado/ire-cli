@@ -350,7 +350,7 @@ test("bitbucket pipelines get fetches a UUID and emits a normalized pipeline run
   assert.equal(result.exitCode, 0);
   assert.equal(result.stderr, "");
   assert.deepEqual(envelope.data, {
-    uuid: "{pipeline-1}", buildNumber: 123, state: "COMPLETED", result: "SUCCESSFUL", branch: "main", trigger: "push",
+    uuid: "{pipeline-1}", buildNumber: 123, state: "COMPLETED", result: "SUCCESSFUL", branch: "main", baseBranch: null, trigger: "push",
     created: "2026-05-04T12:34:56.000Z", completed: "2026-05-04T12:39:56.000Z", durationInSeconds: 300,
   });
   assert.deepEqual(envelope.meta, { bitbucket: { workspace: "workspace-one", repo: "repo-one" } });
@@ -383,12 +383,76 @@ test("bitbucket pipelines get reuses Git remote repo resolution", async () => {
   assert.deepEqual(parseJson(result.stdout).meta, { bitbucket: { workspace: "remote-workspace", repo: "remote-repo" } });
 });
 
+test("bitbucket pipelines get reports source branch and base branch for pull-request-triggered runs", async () => {
+  const hookPath = await writeFetchHook(`
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url === "https://api.bitbucket.org/2.0/repositories/ws/repo/pipelines/%7Bpr-pipeline%7D") {
+        return Response.json({
+          uuid: "{pr-pipeline}", build_number: 42, state: { name: "COMPLETED", result: { name: "FAILED" } },
+          target: {
+            type: "pipeline_pullrequest_target", source: "FEATURE-123", destination: "stage",
+            selector: { type: "pull-requests", pattern: "**" }, pullrequest: { id: 12345, title: "..." },
+          },
+          trigger: { name: "pull_request" }, created_on: "2026-05-04T10:00:00.000Z"
+        });
+      }
+      return Response.json({ url }, { status: 500 });
+    };
+  `);
+
+  const result = await runIre(["bitbucket", "pipelines", "get", "{pr-pipeline}", "--repo", "ws/repo"], {
+    nodeArgs: ["--import", hookPath],
+    env: { IRE_BITBUCKET_EMAIL: "bb-user", IRE_BITBUCKET_API_TOKEN: "bb-secret" },
+  });
+  const envelope = parseJson(result.stdout);
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stderr, "");
+  assert.deepEqual(envelope.data, {
+    uuid: "{pr-pipeline}", buildNumber: 42, state: "COMPLETED", result: "FAILED", branch: "FEATURE-123", baseBranch: "stage", trigger: "pull_request",
+    created: "2026-05-04T10:00:00.000Z", completed: null, durationInSeconds: null,
+  });
+});
+
+test("bitbucket pipelines list --branch matches pull-request-triggered runs via target.branch", async () => {
+  const hookPath = await writeFetchHook(`
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url === "https://api.bitbucket.org/2.0/repositories/ws/repo/pipelines/?pagelen=50&sort=-created_on&target.branch=FEATURE-123") {
+        return Response.json({ values: [{
+          uuid: "{pr-pipeline}", build_number: 42, state: { name: "COMPLETED", result: { name: "FAILED" } },
+          target: { type: "pipeline_pullrequest_target", source: "FEATURE-123", destination: "stage" },
+          trigger: { name: "pull_request" }, created_on: "2026-05-04T10:00:00.000Z"
+        }] });
+      }
+      return Response.json({ url }, { status: 500 });
+    };
+  `);
+
+  const result = await runIre(["bitbucket", "pipelines", "list", "--repo", "ws/repo", "--branch", "FEATURE-123"], {
+    nodeArgs: ["--import", hookPath],
+    env: { IRE_BITBUCKET_EMAIL: "bb-user", IRE_BITBUCKET_API_TOKEN: "bb-secret" },
+  });
+  const envelope = parseJson(result.stdout);
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stderr, "");
+  assert.deepEqual(envelope.data, {
+    pipelines: [{
+      uuid: "{pr-pipeline}", buildNumber: 42, state: "COMPLETED", result: "FAILED", branch: "FEATURE-123", baseBranch: "stage", trigger: "pull_request",
+      created: "2026-05-04T10:00:00.000Z", completed: null, durationInSeconds: null,
+    }],
+    pagination: { limit: 50, nextCursor: null, hasNextPage: false },
+  });
+});
+
 test("bitbucket pipelines list filters by branch and emits normalized pipelines with pagination", async () => {
   const hookPath = await writeFetchHook(`
     globalThis.fetch = async (input, init = {}) => {
       const url = String(input);
       const headers = new Headers(init.headers);
-      if (url !== "https://api.bitbucket.org/2.0/repositories/workspace-one/repo-one/pipelines/?pagelen=50&target.ref_name=main") {
+      if (url !== "https://api.bitbucket.org/2.0/repositories/workspace-one/repo-one/pipelines/?pagelen=50&sort=-created_on&target.branch=main") {
         return Response.json({ message: "unexpected url", url }, { status: 500 });
       }
       const expectedAuthorization = "Basic " + Buffer.from("bb-user:bb-secret").toString("base64");
@@ -417,7 +481,7 @@ test("bitbucket pipelines list filters by branch and emits normalized pipelines 
   assert.equal(result.stdout.includes("bb-secret"), false);
   assert.deepEqual(envelope.data, {
     pipelines: [{
-      uuid: "{pipeline-1}", buildNumber: 123, state: "COMPLETED", result: "SUCCESSFUL", branch: "main", trigger: "push",
+      uuid: "{pipeline-1}", buildNumber: 123, state: "COMPLETED", result: "SUCCESSFUL", branch: "main", baseBranch: null, trigger: "push",
       created: "2026-05-04T12:34:56.000Z", completed: "2026-05-04T12:39:56.000Z", durationInSeconds: 300,
     }],
     pagination: { limit: 50, nextCursor: "next-page", hasNextPage: true },
@@ -429,13 +493,13 @@ test("bitbucket pipelines latest returns the newest normalized pipeline and no-r
   const hookPath = await writeFetchHook(`
     globalThis.fetch = async (input) => {
       const url = String(input);
-      if (url === "https://api.bitbucket.org/2.0/repositories/ws/repo/pipelines/?pagelen=1&target.ref_name=feature") {
+      if (url === "https://api.bitbucket.org/2.0/repositories/ws/repo/pipelines/?pagelen=1&sort=-created_on&target.branch=feature") {
         return Response.json({ values: [{
           uuid: "{pipeline-latest}", build_number: 9, state: { name: "IN_PROGRESS" }, target: { ref_name: "feature" },
           trigger: { name: "manual" }, created_on: "2026-05-04T10:00:00.000Z"
         }] });
       }
-      if (url === "https://api.bitbucket.org/2.0/repositories/ws/repo/pipelines/?pagelen=1&target.ref_name=empty") {
+      if (url === "https://api.bitbucket.org/2.0/repositories/ws/repo/pipelines/?pagelen=1&sort=-created_on&target.branch=empty") {
         return Response.json({ values: [] });
       }
       return Response.json({ url }, { status: 500 });
@@ -448,7 +512,7 @@ test("bitbucket pipelines latest returns the newest normalized pipeline and no-r
   });
   assert.equal(latest.exitCode, 0);
   assert.deepEqual(parseJson(latest.stdout).data, {
-    uuid: "{pipeline-latest}", buildNumber: 9, state: "IN_PROGRESS", result: null, branch: "feature", trigger: "manual",
+    uuid: "{pipeline-latest}", buildNumber: 9, state: "IN_PROGRESS", result: null, branch: "feature", baseBranch: null, trigger: "manual",
     created: "2026-05-04T10:00:00.000Z", completed: null, durationInSeconds: null,
   });
 
@@ -468,7 +532,7 @@ test("bitbucket pipelines list supports cursor, caps limits, and reuses Git remo
     globalThis.fetch = async (input) => {
       const url = String(input);
       if (url === ${JSON.stringify(cursor)}) return Response.json({ values: [] });
-      if (url === "https://api.bitbucket.org/2.0/repositories/remote-workspace/remote-repo/pipelines/?pagelen=100") return Response.json({ values: [] });
+      if (url === "https://api.bitbucket.org/2.0/repositories/remote-workspace/remote-repo/pipelines/?pagelen=100&sort=-created_on") return Response.json({ values: [] });
       return Response.json({ url }, { status: 500 });
     };
   `);
