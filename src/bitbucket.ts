@@ -1017,12 +1017,13 @@ async function fetchBitbucketText(
   try {
     response = await fetchImpl(url, {
       headers: {
-        accept: "text/plain",
+        accept: "*/*",
         authorization: basicAuthorization(
           config.bitbucket.email.value,
           config.bitbucket.apiToken.value,
         ),
       },
+      redirect: "manual",
     });
   } catch {
     options.debugRequests?.push({ provider: "bitbucket", method: "GET", url, latencyMs: Date.now() - startedAt });
@@ -1030,6 +1031,36 @@ async function fetchBitbucketText(
   }
 
   options.debugRequests?.push({ provider: "bitbucket", method: "GET", url, status: response.status, latencyMs: Date.now() - startedAt });
+
+  if (response.status === 307) {
+    const location = response.headers.get("location");
+    if (location === null) {
+      throw new BitbucketProviderError("Bitbucket provider request failed", response.status);
+    }
+
+    const redirectStartedAt = Date.now();
+    try {
+      response = await fetchImpl(new URL(location, url), {
+        headers: { accept: "*/*" },
+      });
+    } catch {
+      options.debugRequests?.push({
+        provider: "bitbucket",
+        method: "GET",
+        url: "[redacted signed URL]",
+        latencyMs: Date.now() - redirectStartedAt,
+      });
+      throw new BitbucketNetworkError();
+    }
+
+    options.debugRequests?.push({
+      provider: "bitbucket",
+      method: "GET",
+      url: "[redacted signed URL]",
+      status: response.status,
+      latencyMs: Date.now() - redirectStartedAt,
+    });
+  }
 
   if (response.status === 401 || response.status === 403) {
     throw new BitbucketAuthenticationError(response.status);

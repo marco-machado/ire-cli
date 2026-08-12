@@ -57,23 +57,35 @@ async function runCommand(command, args, options = {}) {
   });
 }
 
-test("bitbucket pipelines log fetches a step log and emits it in a JSON envelope", async () => {
+test("bitbucket pipelines log follows the signed redirect without leaking credentials", async () => {
   const hookPath = await writeFetchHook(`
     globalThis.fetch = async (input, init = {}) => {
       const url = String(input);
       const headers = new Headers(init.headers);
-      if (url !== "https://api.bitbucket.org/2.0/repositories/workspace-one/repo-one/pipelines/%7Bpipeline-1%7D/steps/%7Bstep-1%7D/log") {
-        return new Response(JSON.stringify({ message: "unexpected url", url }), { status: 500, headers: { "content-type": "application/json" } });
+      if (url === "https://api.bitbucket.org/2.0/repositories/workspace-one/repo-one/pipelines/%7Bpipeline-1%7D/steps/%7Bstep-1%7D/log") {
+        const expectedAuthorization = "Basic " + Buffer.from("bb-user:bb-secret").toString("base64");
+        if (headers.get("authorization") !== expectedAuthorization) {
+          return new Response("unexpected authorization", { status: 401 });
+        }
+        if (headers.get("accept") !== "*/*") {
+          return new Response("unsupported accept", { status: 406 });
+        }
+        return new Response(null, {
+          status: 307,
+          headers: { location: "https://signed.example.test/pipeline.log?token=super-secret" },
+        });
       }
-      const expectedAuthorization = "Basic " + Buffer.from("bb-user:bb-secret").toString("base64");
-      if (headers.get("authorization") !== expectedAuthorization) {
-        return new Response("unexpected authorization", { status: 401 });
+      if (url === "https://signed.example.test/pipeline.log?token=super-secret") {
+        if (headers.has("authorization")) {
+          return new Response("authorization leaked", { status: 400 });
+        }
+        return new Response("npm test\\nall green\\n", { status: 200, headers: { "content-type": "text/plain" } });
       }
-      return new Response("npm test\\nall green\\n", { status: 200, headers: { "content-type": "text/plain" } });
+      return new Response(JSON.stringify({ message: "unexpected url", url }), { status: 500, headers: { "content-type": "application/json" } });
     };
   `);
 
-  const result = await runIre(["bitbucket", "pipelines", "log", "{pipeline-1}", "{step-1}", "--repo", "workspace-one/repo-one"], {
+  const result = await runIre(["bitbucket", "pipelines", "log", "{pipeline-1}", "{step-1}", "--repo", "workspace-one/repo-one", "--debug"], {
     nodeArgs: ["--import", hookPath],
     env: { IRE_BITBUCKET_EMAIL: "bb-user", IRE_BITBUCKET_API_TOKEN: "bb-secret" },
   });
@@ -82,7 +94,15 @@ test("bitbucket pipelines log fetches a step log and emits it in a JSON envelope
   assert.equal(result.exitCode, 0);
   assert.equal(result.stderr, "");
   assert.deepEqual(envelope.data, { log: "npm test\nall green\n" });
-  assert.deepEqual(envelope.meta, { bitbucket: { workspace: "workspace-one", repo: "repo-one" } });
+  assert.deepEqual(envelope.meta.bitbucket, { workspace: "workspace-one", repo: "repo-one" });
+  assert.deepEqual(envelope.meta.debug.requests.map(({ url, status }) => ({ url, status })), [
+    {
+      url: "https://api.bitbucket.org/2.0/repositories/workspace-one/repo-one/pipelines/%7Bpipeline-1%7D/steps/%7Bstep-1%7D/log",
+      status: 307,
+    },
+    { url: "[redacted signed URL]", status: 200 },
+  ]);
+  assert.equal(JSON.stringify(envelope.meta.debug).includes("super-secret"), false);
 });
 
 test("bitbucket pipelines log emits empty logs and reuses Git remote repo resolution", async () => {
