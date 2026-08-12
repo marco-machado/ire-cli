@@ -303,6 +303,7 @@ const normalizedPipelineSchema = z
     state: z.enum(["PENDING", "IN_PROGRESS", "COMPLETED", "PAUSED"]),
     result: z.enum(["SUCCESSFUL", "FAILED", "ERROR", "STOPPED"]).nullable(),
     branch: z.string().nullable(),
+    baseBranch: z.string().nullable(),
     trigger: z.string().nullable(),
     created: z.iso.datetime(),
     completed: z.iso.datetime().nullable(),
@@ -661,7 +662,8 @@ function normalizePipeline(providerPipeline: unknown): z.infer<typeof normalized
     buildNumber: pipeline?.build_number,
     state: state?.name,
     result: result?.name ?? null,
-    branch: stringField(target?.ref_name),
+    branch: stringField(target?.ref_name) ?? stringField(target?.source),
+    baseBranch: stringField(target?.destination),
     trigger: stringField(trigger?.name),
     created: normalizeTimestamp(pipeline?.created_on),
     completed: pipeline?.completed_on === undefined || pipeline.completed_on === null ? null : normalizeTimestamp(pipeline.completed_on),
@@ -999,8 +1001,9 @@ function pipelinesUrl(repo: BitbucketRepoIdentity, limit: number, branch?: strin
     `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(repo.workspace)}/${encodeURIComponent(repo.repo)}/pipelines/`,
   );
   url.searchParams.set("pagelen", String(limit));
+  url.searchParams.set("sort", "-created_on");
   if (branch !== undefined) {
-    url.searchParams.set("target.ref_name", branch);
+    url.searchParams.set("target.branch", branch);
   }
   return String(url);
 }
