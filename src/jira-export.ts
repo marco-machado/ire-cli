@@ -4,20 +4,28 @@ import { basename, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { z } from "zod";
-import { adfToMarkdown, isAdfDocument } from "./adf.js";
+import {
+  adfToMarkdownWithMedia,
+  isAdfDocument,
+  type JsonRecord,
+} from "./adf.js";
 import type { ResolvedConfig } from "./config.js";
 import { IreConfigurationError } from "./errors.js";
 import {
   fetchAllJiraCommentPages,
+  getJiraDevStatusDetail,
   getJiraIssue,
   JiraAuthenticationError,
   JiraNetworkError,
   JiraNormalizedOutputError,
   JiraProviderError,
+  JIRA_REGRESSION_FIELD_ID,
+  JIRA_REGRESSION_TESTING_GUIDANCE_FIELD_ID,
+  JIRA_TEST_PLAN_FIELD_ID,
+  normalizePullRequests,
+  pullRequestSchema,
   type JiraDebugRequest,
 } from "./jira.js";
-
-type JsonRecord = Record<string, unknown>;
 
 export type AdfFormat = "markdown" | "raw";
 
@@ -61,6 +69,15 @@ const jiraIssueExportSchema = z
     parent: z.object({ key: z.string(), summary: z.string() }).strict().nullable(),
     created: z.iso.datetime(),
     updated: z.iso.datetime(),
+    acceptanceCriteria: richTextSchema,
+    designs: richTextSchema,
+    testPlan: richTextSchema,
+    regressionTestingGuidance: richTextSchema,
+    architecturalNotes: richTextSchema,
+    regression: richTextSchema,
+    changeImpact: richTextSchema,
+    deploymentStatus: richTextSchema,
+    releasePlan: richTextSchema,
     customFields: z.record(z.string(), z.json()),
     comments: z.array(
       z
@@ -95,6 +112,7 @@ const jiraIssueExportSchema = z
         })
         .strict(),
     ),
+    pullRequests: z.array(pullRequestSchema),
   })
   .strict();
 
@@ -107,6 +125,33 @@ export class JiraAttachmentWriteError extends IreConfigurationError {
     super("Jira attachment could not be written");
   }
 }
+
+/** Reserved top-level output keys that never belong under `customFields`. */
+const RESERVED_SEMANTIC_KEYS = new Set(["sprints", "storyPoints"]);
+
+/**
+ * First-class QA semantic keys, always present and `null` when unset. Field ids
+ * resolve from `jira.issueExport.fieldMappings` when configured; otherwise the
+ * built-in ids below apply for the keys this Jira instance is known to use.
+ */
+const QA_FIELD_KEYS = [
+  "acceptanceCriteria",
+  "designs",
+  "testPlan",
+  "regressionTestingGuidance",
+  "architecturalNotes",
+  "regression",
+  "changeImpact",
+  "deploymentStatus",
+  "releasePlan",
+] as const;
+
+/** Shared with `jira issue get`: ids built in for the target Jira instance. */
+const BUILT_IN_FIELD_IDS: Record<string, string[]> = {
+  testPlan: [JIRA_TEST_PLAN_FIELD_ID],
+  regressionTestingGuidance: [JIRA_REGRESSION_TESTING_GUIDANCE_FIELD_ID],
+  regression: [JIRA_REGRESSION_FIELD_ID],
+};
 
 function asRecord(value: unknown): JsonRecord | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -135,21 +180,37 @@ function normalizeUser(value: unknown): unknown {
   };
 }
 
-function renderRichText(value: unknown, format: AdfFormat): unknown {
+function renderRichText(
+  value: unknown,
+  format: AdfFormat,
+  resolveMediaUrl?: (attrs: JsonRecord) => string | undefined,
+): unknown {
   if (value === null || value === undefined) return null;
-  if (!isAdfDocument(value)) return typeof value === "string" ? value : normalizeCustomValue(value, format);
-  return format === "raw" ? value : adfToMarkdown(value);
+  if (!isAdfDocument(value)) {
+    return typeof value === "string"
+      ? value
+      : normalizeCustomValue(value, format, resolveMediaUrl);
+  }
+  return format === "raw"
+    ? value
+    : adfToMarkdownWithMedia(value, resolveMediaUrl ?? (() => undefined));
 }
 
-function normalizeCustomValue(value: unknown, format: AdfFormat): unknown {
+function normalizeCustomValue(
+  value: unknown,
+  format: AdfFormat,
+  resolveMediaUrl?: (attrs: JsonRecord) => string | undefined,
+): unknown {
   if (value === null || value === undefined) return null;
-  if (isAdfDocument(value)) return renderRichText(value, format);
-  if (Array.isArray(value)) return value.map((entry) => normalizeCustomValue(entry, format));
+  if (isAdfDocument(value)) return renderRichText(value, format, resolveMediaUrl);
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeCustomValue(entry, format, resolveMediaUrl));
+  }
   if (typeof value !== "object") return value;
 
   const record = asRecord(value);
   if (record === undefined) return value;
-  if ("value" in record) return normalizeCustomValue(record.value, format);
+  if ("value" in record) return normalizeCustomValue(record.value, format, resolveMediaUrl);
   if (typeof record.name === "string") return record.name;
   return value;
 }
@@ -157,7 +218,7 @@ function normalizeCustomValue(value: unknown, format: AdfFormat): unknown {
 function isPopulated(value: unknown): boolean {
   if (value === null || value === undefined) return false;
   if (typeof value === "string") return value.trim() !== "";
-  if (isAdfDocument(value)) return adfToMarkdown(value) !== "";
+  if (isAdfDocument(value)) return adfToMarkdownWithMedia(value, () => undefined) !== "";
   if (Array.isArray(value)) return value.some((entry) => isPopulated(entry));
   const record = asRecord(value);
   if (record === undefined) return true;
@@ -176,6 +237,15 @@ function mappedValue(
     if (isPopulated(value)) return value;
   }
   return null;
+}
+
+function resolveFieldCandidates(
+  mappings: Record<string, string[]>,
+  semanticKey: string,
+): string[] | undefined {
+  const configured = mappings[semanticKey];
+  if (configured !== undefined) return configured;
+  return BUILT_IN_FIELD_IDS[semanticKey];
 }
 
 function normalizeSprints(value: unknown): unknown {
@@ -242,10 +312,34 @@ function normalizeIssueLinks(value: unknown): unknown[] {
   });
 }
 
+/**
+ * Resolve a Jira media node (no inline URL) to its attachment download URL.
+ * Matches the media `alt` (or `id`) against attachment filenames so rich-text
+ * markdown can emit `![alt](contentUrl)` instead of a bare label.
+ */
+function makeMediaUrlResolver(
+  attachments: Array<{ filename?: unknown; contentUrl?: unknown }>,
+): (attrs: JsonRecord) => string | undefined {
+  return (attrs) => {
+    const candidates = [
+      typeof attrs.alt === "string" ? attrs.alt : undefined,
+      typeof attrs.id === "string" ? attrs.id : undefined,
+    ].filter((candidate): candidate is string => candidate !== undefined);
+
+    const match = attachments.find(
+      (attachment) =>
+        typeof attachment.filename === "string" &&
+        candidates.includes(attachment.filename),
+    );
+    return typeof match?.contentUrl === "string" ? match.contentUrl : undefined;
+  };
+}
+
 async function getAllComments(
   config: ResolvedConfig,
   key: string,
   format: AdfFormat,
+  resolveMediaUrl: ((attrs: JsonRecord) => string | undefined) | undefined,
   debugRequests: JiraDebugRequest[] | undefined,
 ): Promise<unknown[]> {
   const pages = await fetchAllJiraCommentPages(config, key, { debugRequests });
@@ -259,7 +353,7 @@ async function getAllComments(
         return {
           author: normalizeUser(comment?.author),
           created: normalizeTimestamp(comment?.created),
-          body: renderRichText(comment?.body, format),
+          body: renderRichText(comment?.body, format, resolveMediaUrl),
         };
       },
     );
@@ -370,21 +464,47 @@ export async function exportJiraIssue(
   const issue = asRecord(providerIssue);
   const fields = asRecord(issue?.fields) ?? {};
   const mappings = config.jira.issueExport.fieldMappings.value;
-  const customFields: Record<string, unknown> = {};
+  const attachments = normalizeAttachments(fields.attachment);
+  const resolveMediaUrl = makeMediaUrlResolver(
+    attachments as Array<{ filename?: unknown; contentUrl?: unknown }>,
+  );
 
+  const customFields: Record<string, unknown> = {};
   for (const [semanticKey, candidates] of Object.entries(mappings)) {
-    if (semanticKey === "sprints" || semanticKey === "storyPoints") continue;
+    if (
+      RESERVED_SEMANTIC_KEYS.has(semanticKey) ||
+      (QA_FIELD_KEYS as readonly string[]).includes(semanticKey)
+    ) {
+      continue;
+    }
     customFields[semanticKey] = normalizeCustomValue(
       mappedValue(fields, candidates),
       format,
+      resolveMediaUrl,
     );
   }
 
-  const storyPointsValue = mappedValue(fields, mappings.storyPoints);
+  const qaFields: Record<string, unknown> = {};
+  for (const semanticKey of QA_FIELD_KEYS) {
+    qaFields[semanticKey] = normalizeCustomValue(
+      mappedValue(fields, resolveFieldCandidates(mappings, semanticKey)),
+      format,
+      resolveMediaUrl,
+    );
+  }
+
+  const issueId = issue?.id;
+  if (typeof issueId !== "string" && typeof issueId !== "number") {
+    throw new JiraProviderError("Jira issue payload did not include an issue id");
+  }
+  const providerDevStatus = await getJiraDevStatusDetail(config, String(issueId), {
+    debugRequests: options.debugRequests,
+  });
+
   const normalized = {
     key: issue?.key,
     summary: fields.summary,
-    description: renderRichText(fields.description, format),
+    description: renderRichText(fields.description, format, resolveMediaUrl),
     status: namedField(fields.status),
     issueType: namedField(fields.issuetype),
     priority: fields.priority === null ? null : (namedField(fields.priority) ?? null),
@@ -395,16 +515,20 @@ export async function exportJiraIssue(
     assignee: normalizeUser(fields.assignee),
     reporter: normalizeUser(fields.reporter),
     labels: Array.isArray(fields.labels) ? fields.labels : [],
-    sprints: normalizeSprints(mappedValue(fields, mappings.sprints)),
-    storyPoints: storyPointsValue,
+    sprints: normalizeSprints(
+      mappedValue(fields, resolveFieldCandidates(mappings, "sprints")),
+    ),
+    storyPoints: mappedValue(fields, resolveFieldCandidates(mappings, "storyPoints")),
     parent: normalizeParent(fields.parent),
     created: normalizeTimestamp(fields.created),
     updated: normalizeTimestamp(fields.updated),
+    ...qaFields,
     customFields,
-    comments: await getAllComments(config, key, format, options.debugRequests),
-    attachments: normalizeAttachments(fields.attachment),
+    comments: await getAllComments(config, key, format, resolveMediaUrl, options.debugRequests),
+    attachments,
     subtasks: normalizeSubtasks(fields.subtasks),
     issueLinks: normalizeIssueLinks(fields.issuelinks),
+    pullRequests: normalizePullRequests(providerDevStatus),
   };
 
   const parsed = jiraIssueExportSchema.safeParse(normalized);

@@ -1,7 +1,9 @@
-type JsonRecord = Record<string, unknown>;
+export type JsonRecord = Record<string, unknown>;
 
 type RenderContext = {
   listDepth: number;
+  /** Resolve a media node (no inline URL) to a download URL, e.g. by matching attachment metadata. */
+  resolveMediaUrl?: (attrs: JsonRecord) => string | undefined;
 };
 
 function asRecord(value: unknown): JsonRecord | undefined {
@@ -209,9 +211,12 @@ function renderNode(value: unknown, context: RenderContext): string {
         : typeof attrs.id === "string"
           ? attrs.id
           : "attachment";
-      return typeof attrs.url === "string"
-        ? `![${escapeMarkdown(label)}](${attrs.url})`
-        : `[media: ${escapeMarkdown(label)}]`;
+      const url = typeof attrs.url === "string"
+        ? attrs.url
+        : context.resolveMediaUrl?.(attrs);
+      return url === undefined
+        ? `[media: ${escapeMarkdown(label)}]`
+        : `![${escapeMarkdown(label)}](${url})`;
     }
     case "rule":
       return "---";
@@ -230,4 +235,11 @@ export function isAdfDocument(value: unknown): boolean {
 
 export function adfToMarkdown(value: unknown): string {
   return renderNode(value, { listDepth: 0 }).trim();
+}
+
+export function adfToMarkdownWithMedia(
+  value: unknown,
+  resolveMediaUrl: (attrs: JsonRecord) => string | undefined,
+): string {
+  return renderNode(value, { listDepth: 0, resolveMediaUrl }).trim();
 }

@@ -223,6 +223,10 @@ test("jira issue export emits a complete curated issue with Markdown and semanti
         });
       }
 
+      if (url.pathname === "/rest/dev-status/latest/issue/detail") {
+        return Response.json({ errors: [], detail: [] });
+      }
+
       return Response.json({ message: "unexpected url", url: String(url) }, { status: 500 });
     };
   `);
@@ -237,7 +241,7 @@ test("jira issue export emits a complete curated issue with Markdown and semanti
   assert.equal(result.stdout.includes("jira-secret"), false);
   assert.deepEqual(JSON.parse(result.stdout), {
     success: true,
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     data: {
       key: "ABC-123",
       summary: "Export Jira context",
@@ -258,11 +262,16 @@ test("jira issue export emits a complete curated issue with Markdown and semanti
       parent: { key: "ABC-100", summary: "Parent issue" },
       created: "2026-05-04T12:34:56.000Z",
       updated: "2026-05-04T13:45:01.000Z",
-      customFields: {
-        testPlan: "Run the suite.",
-        regression: "No",
-        acceptanceCriteria: null,
-      },
+      acceptanceCriteria: null,
+      designs: null,
+      testPlan: "Run the suite.",
+      regressionTestingGuidance: null,
+      architecturalNotes: null,
+      regression: "No",
+      changeImpact: null,
+      deploymentStatus: null,
+      releasePlan: null,
+      customFields: {},
       comments: [
         {
           author: { accountId: "commenter-1", displayName: "Commenter One" },
@@ -288,6 +297,7 @@ test("jira issue export emits a complete curated issue with Markdown and semanti
           status: "Done",
         },
       ],
+      pullRequests: [],
     },
     meta: {},
   });
@@ -324,6 +334,7 @@ test("jira issue export returns raw ADF consistently and fetches every comment p
       const url = new URL(String(input));
       if (url.pathname === "/rest/api/3/issue/ABC-200") {
         return Response.json({
+          id: "10002",
           key: "ABC-200",
           fields: {
             summary: "Raw export",
@@ -362,6 +373,10 @@ test("jira issue export returns raw ADF consistently and fetches every comment p
         });
       }
 
+      if (url.pathname === "/rest/dev-status/latest/issue/detail") {
+        return Response.json({ errors: [], detail: [] });
+      }
+
       return Response.json({ message: "unexpected url", url: String(url) }, { status: 500 });
     };
   `);
@@ -374,7 +389,7 @@ test("jira issue export returns raw ADF consistently and fetches every comment p
 
   assert.equal(result.exitCode, 0);
   assert.deepEqual(envelope.data.description, description);
-  assert.deepEqual(envelope.data.customFields.testPlan, testPlan);
+  assert.deepEqual(envelope.data.testPlan, testPlan);
   assert.deepEqual(envelope.data.comments, [
     { author: null, created: "2026-05-04T13:00:00.000Z", body: firstComment },
     { author: null, created: "2026-05-04T14:00:00.000Z", body: secondComment },
@@ -397,6 +412,7 @@ test("jira issue export downloads authenticated attachments safely and overwrite
 
       if (url.pathname === "/rest/api/3/issue/ABC-300") {
         return Response.json({
+          id: "10003",
           key: "ABC-300",
           fields: {
             summary: "Download attachment",
@@ -433,6 +449,10 @@ test("jira issue export downloads authenticated attachments safely and overwrite
         });
       }
 
+      if (url.pathname === "/rest/dev-status/latest/issue/detail") {
+        return Response.json({ errors: [], detail: [] });
+      }
+
       return Response.json({ message: "unexpected url", url: String(url) }, { status: 500 });
     };
   `);
@@ -454,7 +474,11 @@ test("jira issue export renders supported and unknown ADF nodes as readable Mark
       if (url.pathname.endsWith("/comment")) {
         return Response.json({ startAt: 0, maxResults: 100, total: 0, comments: [] });
       }
+      if (url.pathname.includes("/dev-status/")) {
+        return Response.json({ errors: [], detail: [] });
+      }
       return Response.json({
+        id: "10004",
         key: "ABC-400",
         fields: {
           summary: "ADF fidelity",
@@ -626,7 +650,10 @@ test("jira issue export maps malformed output and attachment failures to structu
       if (url.pathname.endsWith("/comment")) {
         return Response.json({ startAt: 0, maxResults: 100, total: 0, comments: [] });
       }
-      return Response.json({ key: "ABC-600", fields: {} });
+      if (url.pathname.includes("/dev-status/")) {
+        return Response.json({ errors: [], detail: [] });
+      }
+      return Response.json({ id: "10006", key: "ABC-600", fields: {} });
     };
   `);
   const attachmentHook = await writeFetchHook(`
@@ -634,6 +661,7 @@ test("jira issue export maps malformed output and attachment failures to structu
       const url = new URL(String(input));
       if (url.pathname === "/rest/api/3/issue/ABC-601") {
         return Response.json({
+          id: "10006",
           key: "ABC-601",
           fields: {
             summary: "Attachment failure",
@@ -660,6 +688,9 @@ test("jira issue export maps malformed output and attachment failures to structu
       }
       if (url.pathname.endsWith("/comment")) {
         return Response.json({ startAt: 0, maxResults: 100, total: 0, comments: [] });
+      }
+      if (url.pathname.includes("/dev-status/")) {
+        return Response.json({ errors: [], detail: [] });
       }
       return Response.json({ message: "download failed" }, { status: 500 });
     };
@@ -690,7 +721,10 @@ test("jira issue export rejects malformed pagination and configured sprint/story
       if (url.pathname.endsWith("/comment")) {
         return Response.json({ startAt: 0, comments: [] });
       }
-      return Response.json({ key: "ABC-700", fields });
+      if (url.pathname.includes("/dev-status/")) {
+        return Response.json({ errors: [], detail: [] });
+      }
+      return Response.json({ id: "10007", key: "ABC-700", fields });
     };
   `);
   const malformedMappingsCwd = await writeProjectConfig({
@@ -715,7 +749,10 @@ test("jira issue export rejects malformed pagination and configured sprint/story
       if (url.pathname.endsWith("/comment")) {
         return Response.json({ startAt: 0, maxResults: 100, total: 0, comments: [] });
       }
-      return Response.json({ key: "ABC-701", fields });
+      if (url.pathname.includes("/dev-status/")) {
+        return Response.json({ errors: [], detail: [] });
+      }
+      return Response.json({ id: "10008", key: "ABC-701", fields });
     };
   `);
   const env = {
@@ -763,7 +800,10 @@ test("jira issue export refuses to overwrite an attachment symlink", async () =>
       if (url.pathname.includes("/secure/attachment/")) {
         return new Response("fresh", { status: 200 });
       }
-      return Response.json({ key: "ABC-702", fields });
+      if (url.pathname.includes("/dev-status/")) {
+        return Response.json({ errors: [], detail: [] });
+      }
+      return Response.json({ id: "10009", key: "ABC-702", fields });
     };
   `);
 
@@ -803,4 +843,122 @@ test("jira issue export maps authentication and network failures", async () => {
   assert.equal(JSON.parse(auth.stdout).error.code, "JIRA_AUTH_FAILED");
   assert.equal(network.exitCode, 6);
   assert.equal(JSON.parse(network.stdout).error.code, "JIRA_NETWORK_ERROR");
+});
+
+test("jira issue export resolves first-class QA fields from built-in ids, links image media to attachment URLs, and normalizes pull-request URLs", async () => {
+  const cwd = await writeProjectConfig({
+    jira: {
+      baseUrl: "https://jira.example.test",
+      email: "agent@example.test",
+      apiToken: "jira-secret",
+      issueExport: { fieldMappings: {} },
+    },
+  });
+  const hookPath = await writeFetchHook(`
+    const issueFields = {
+      summary: "Complete ticket record",
+      description: {
+        type: "doc",
+        version: 1,
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "See diagram:" }] },
+          { type: "mediaSingle", content: [{ type: "media", attrs: { id: "media-1", alt: "test-plan.png" } }] }
+        ]
+      },
+      status: { name: "To Do" },
+      issuetype: { name: "Story" },
+      priority: null,
+      project: { key: "ABC", name: "Agent Bridge" },
+      assignee: null,
+      reporter: null,
+      labels: [],
+      created: "2026-05-04T12:00:00.000+0000",
+      updated: "2026-05-04T12:30:00.000+0000",
+      customfield_11747: {
+        type: "doc",
+        version: 1,
+        content: [
+          { type: "mediaSingle", content: [{ type: "media", attrs: { id: "media-1", alt: "test-plan.png" } }] }
+        ]
+      },
+      customfield_12213: {
+        type: "doc",
+        version: 1,
+        content: [{ type: "paragraph", content: [{ type: "text", text: "Run the suite." }] }]
+      },
+      customfield_11734: { value: "Yes" },
+      attachment: [
+        {
+          filename: "test-plan.png",
+          mimeType: "image/png",
+          size: 10,
+          content: "https://jira.example.test/secure/attachment/900/test-plan.png"
+        }
+      ],
+      subtasks: [],
+      issuelinks: []
+    };
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/rest/api/3/issue/ABC-900") {
+        return Response.json({ id: "10009", key: "ABC-900", fields: issueFields });
+      }
+      if (url.pathname === "/rest/api/3/issue/ABC-900/comment") {
+        return Response.json({ startAt: 0, maxResults: 100, total: 0, comments: [] });
+      }
+      if (url.pathname === "/rest/dev-status/latest/issue/detail") {
+        return Response.json({
+          errors: [],
+          detail: [{
+            pullRequests: [{
+              id: "#167",
+              name: "ABC-900 ship it",
+              url: "https://bitbucket.org/{01234567-89ab-cdef-0123-456789abcdef}/{fedcba98-7654-3210-fedc-ba9876543210}/pull-requests/167",
+              status: "OPEN",
+              lastUpdate: "2026-05-04T14:00:00.000+0000",
+              source: { branch: "feat/ABC-900-ship" },
+              author: { name: "Dev One" },
+              repositoryName: "myworkspace/myrepo"
+            }]
+          }]
+        });
+      }
+      return Response.json({ message: "unexpected url", url: String(url) }, { status: 500 });
+    };
+  `);
+
+  const result = await runIre(["jira", "issue", "export", "ABC-900"], {
+    cwd,
+    nodeArgs: ["--import", hookPath],
+  });
+  const envelope = JSON.parse(result.stdout);
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(envelope.schemaVersion, "1.1");
+  assert.equal(
+    envelope.data.testPlan,
+    "![test-plan.png](https://jira.example.test/secure/attachment/900/test-plan.png)",
+  );
+  assert.equal(envelope.data.regressionTestingGuidance, "Run the suite.");
+  assert.equal(envelope.data.regression, "Yes");
+  assert.equal(
+    envelope.data.description,
+    "See diagram:\n\n![test-plan.png](https://jira.example.test/secure/attachment/900/test-plan.png)",
+  );
+  for (const key of ["acceptanceCriteria", "designs", "architecturalNotes", "changeImpact", "deploymentStatus", "releasePlan"]) {
+    assert.equal(envelope.data[key], null);
+  }
+  assert.deepEqual(envelope.data.customFields, {});
+  assert.deepEqual(envelope.data.pullRequests, [
+    {
+      title: "ABC-900 ship it",
+      url: "https://bitbucket.org/myworkspace/myrepo/pull-requests/167",
+      status: "OPEN",
+      branch: "feat/ABC-900-ship",
+      repository: "myworkspace/myrepo",
+      author: "Dev One",
+      updated: "2026-05-04T14:00:00.000Z",
+    },
+  ]);
 });
