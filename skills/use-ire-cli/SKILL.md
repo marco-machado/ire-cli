@@ -78,9 +78,9 @@ The success envelope is version `1.1`. The command performs several provider req
 
 ### Complete issue export
 
-Use `ire jira issue export KEY` when one deterministic record should include header fields, sprint/story-point data, parent, configured semantic fields, all comments, attachment metadata, subtasks, and issue links. Rich text is Markdown by default; use `--adf-format raw` only when provider-native ADF is required.
+Use `ire jira issue export KEY` when one deterministic record should include header fields, sprint/story-point data, parent, first-class QA fields, all comments, attachment metadata, subtasks, issue links, and development-panel pull requests. Rich text is Markdown by default; use `--adf-format raw` only when provider-native ADF is required.
 
-The success envelope is version `1.0`. Its `data` object contains string header fields; UTC `created`/`updated`; nullable `description`, `priority`, assignee/reporter, story points, and parent; array-valued labels, sprints, comments, attachments, subtasks, and issue links; and a `customFields` object keyed by configured semantic names. Comments contain `{ author, created, body }`; attachments contain `{ filename, mimeType, size, contentUrl }`; parent contains `{ key, summary }`.
+The success envelope is version `1.1`. Its `data` object contains string header fields; UTC `created`/`updated`; nullable `description`, `priority`, assignee/reporter, story points, parent, and the QA fields `acceptanceCriteria`, `designs`, `testPlan`, `regressionTestingGuidance`, `architecturalNotes`, `regression`, `changeImpact`, `deploymentStatus`, and `releasePlan`; array-valued labels, sprints, comments, attachments, subtasks, issue links, and `pullRequests`. Comments contain `{ author, created, body }`; attachments contain `{ filename, mimeType, size, contentUrl }`; parent contains `{ key, summary }`; pull requests contain `{ title, url, status, branch, repository, author, updated }`.
 
 Configure semantic fields in project or user config:
 
@@ -98,9 +98,9 @@ Configure semantic fields in project or user config:
 }
 ```
 
-Mappings are ordered; the first populated ID wins. `sprints` and `storyPoints` are reserved top-level outputs, while other keys appear under `customFields`. Configured empty keys are `null`; unconfigured keys are absent. There are no built-in instance-specific IDs.
+Mappings are ordered; the first populated ID wins. `sprints` and `storyPoints` are reserved top-level outputs; the QA keys above are first-class top-level fields; any other configured key appears under `customFields`. When a mapping is absent, `testPlan`, `regressionTestingGuidance`, and `regression` fall back to ids built in for the target Jira instance (`customfield_11747`, `customfield_12213`, `customfield_11734`). Configured empty keys are `null`; unset keys with no built-in id are still present and `null`.
 
-`--download-attachments <dir>` writes authenticated attachment bytes to safe basenames and overwrites existing same-name files. JSON remains on stdout. The export excludes development-panel pull requests; `ire jira issue get` returns them.
+A Jira `media` node without an inline URL renders as `![alt](contentUrl)` when its `alt` matches an attachment filename, so image-only fields stay populated and images survive one export. `--download-attachments <dir>` writes authenticated attachment bytes to safe basenames and overwrites existing same-name files. JSON remains on stdout. `pullRequests` reads the private `dev-status` endpoint filtered to Bitbucket; the export fails whole when that request fails.
 
 ## Bitbucket PR workflows
 
