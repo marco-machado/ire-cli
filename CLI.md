@@ -1,4 +1,4 @@
-The command trees do not line up 1:1. ire is 17 leaf commands, all reads, namespaced by provider. gh is a full GitHub product CLI: the overlapping slice is already larger than ire’s entire tree, and most of gh has no analog at all.
+The command trees do not line up 1:1. ire is 18 leaf commands, all reads. Destination leaves are `ire <resource> <verb>`; leftover leaves stay `ire <provider> <resource> <verb>`. gh is a full GitHub product CLI: the overlapping slice is already larger than ire’s entire tree, and most of gh has no analog at all.
 
 The two trees
 
@@ -7,6 +7,7 @@ ire (complete):
 ire
 ├── config inspect
 ├── auth check [jira|bitbucket]
+├── issue view KEY
 ├── jira issue
 │   ├── get KEY
 │   ├── export KEY
@@ -45,7 +46,8 @@ Grammar
 ┌──────────────────┬───────────────────────────────────────────────────────┬───────────────────────────────────────────────────────────────────────────────────────────────┐
 │                  │ ire                                                   │ gh                                                                                            │
 ├──────────────────┼───────────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────┤
-│ Shape            │ ire <provider> <resource> <verb>                      │ gh <resource> <verb>                                                                          │
+│ Shape            │ Destination: ire <resource> <verb>. Leftover: ire     │ gh <resource> <verb>                                                                          │
+│                  │ <provider> <resource> <verb>                          │                                                                                                │
 ├──────────────────┼───────────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Identity         │ Required. Jira key or Bitbucket PR id / pipeline UUID │ Often optional. PR/run inferred from current branch; interactive picker if omitted            │
 ├──────────────────┼───────────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────┤
@@ -65,14 +67,15 @@ Grammar
 │ Writes           │ none                                                  │ create, edit, close, comment, merge, rerun, delete, …                                         │
 └──────────────────┴───────────────────────────────────────────────────────┴───────────────────────────────────────────────────────────────────────────────────────────────┘
 
-ire uses get (strict fetch). gh uses view (display, optionally in a browser). Same idea, different contract.
+Destination issue fetch is `ire issue view` (primary record; Expansions opt-in). Leftover `ire jira issue get` is the always-full aggregate. gh `view` is a display command, optionally in a browser.
 
 A naming trap: gh issue comment / gh pr comment write. ire … comments list reads.
 
 ───
 
-Issues: ire jira issue vs gh issue
+Issues: ire issue view vs gh issue; leftover `ire jira issue get`
 
+ire issue view KEY
 ire jira issue get KEY
 ire jira issue export KEY
 ire jira issue search --jql "..."
@@ -83,25 +86,25 @@ gh issue view | close | comment | delete | develop | edit
 gh issue lock | unlock | pin | unpin | reopen | transfer
 gh search issues
 
-Get / view one issue
+View one issue
 
 ┌─────────────┬─────────────────────────────────────────────────────────────────────────────────────────────────────────┬──────────────────────────────────────────────────┐
-│             │ ire jira issue get KEY                                                                                  │ gh issue view {number|url}                       │
+│             │ ire issue view KEY                                                                                      │ gh issue view {number|url}                       │
 ├─────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────┤
 │ Identity    │ Key required (ABC-123). Never inferred from the branch                                                  │ Number or URL required. No branch inference (    │
 │             │                                                                                                         │ unlike PRs)                                      │
 ├─────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────┤
-│ What you    │ One aggregate: header, QA fields, parent, subtasks, issue links, all comments, Bitbucket PRs from the   │ Title/body/metadata. Comments only with -c / --  │
-│ get         │ development panel                                                                                       │ comments                                         │
+│ What you    │ Primary record: header, QA fields, parent, subtasks, issue links. `--comments` and `--pull-requests`    │ Title/body/metadata. Comments only with -c / --  │
+│ get         │ request those Expansions                                                                                │ comments                                         │
 ├─────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────┤
-│ Failure     │ Fails the whole command if any of those requests fail                                                   │ Single GitHub resource fetch                     │
+│ Failure     │ Fails the whole command if the issue fetch or a requested Expansion fails                               │ Single GitHub resource fetch                     │
 ├─────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────┤
-│ JSON        │ Always. schemaVersion: "1.1"                                                                            │ Only with --json fields                          │
+│ JSON        │ Always. schemaVersion: "1.0"                                                                            │ Only with --json fields                          │
 ├─────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────┤
-│ Extra       │ --raw → { issue, comments, pullRequests }                                                               │ --web opens the browser                          │
+│ Extra       │ No `--raw`. Leftover `ire jira issue get` is the always-full aggregate, including `--raw`               │ --web opens the browser                          │
 └─────────────┴─────────────────────────────────────────────────────────────────────────────────────────────────────────┴──────────────────────────────────────────────────┘
 
-get is closer to gh issue view --json … --comments plus several extra GitHub API calls (sub-issues, linked issues, linked PRs) that gh does not bundle.
+`ire jira issue get KEY` remains as a leftover: one fail-closed aggregate (comments + development-panel PRs always on), `schemaVersion: "1.1"`.
 
 Export (ire only)
 
@@ -334,7 +337,8 @@ What each side has that the other does not
 
 Only on ire (as first-class commands):
 
-• jira issue get as a fail-closed multi-request aggregate (comments + links + hierarchy + dev-panel PRs)
+• issue view as a fail-closed primary-record fetch with `--comments` / `--pull-requests` Expansions
+• leftover jira issue get as a fail-closed multi-request aggregate (comments + links + hierarchy + dev-panel PRs always on)
 • jira issue export / bitbucket pr export (curated offline documents + metrics + attachment download)
 • jira issue comments list / bitbucket pr comments list as paginated read primitives
 • bitbucket pr files as its own command
@@ -364,9 +368,9 @@ If you already know gh and want the ire command:
 ┌────────────────────────────────────────────┬──────────────────────────────────────────────────────────────────┐
 │ You would type in gh                       │ Closest ire                                                      │
 ├────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────┤
-│ gh issue view 12                           │ ire jira issue get ABC-12 (key, not number; richer aggregate)    │
+│ gh issue view 12                           │ ire issue view ABC-12 (key, not number)                          │
 ├────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────┤
-│ gh issue view 12 --comments --json …       │ ire jira issue get ABC-12 (comments already included)            │
+│ gh issue view 12 --comments --json …       │ ire issue view ABC-12 --comments                                 │
 ├────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────┤
 │ gh issue list --label bug                  │ ire jira issue search --jql 'labels = bug'                       │
 ├────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────┤

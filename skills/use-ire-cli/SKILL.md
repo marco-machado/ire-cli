@@ -12,7 +12,7 @@ Use `ire` as a read-only, agent-first wrapper around Jira Cloud and Bitbucket Cl
 ```sh
 ire config inspect
 ire auth check
-ire jira issue get ABC-123
+ire issue view ABC-123
 ire jira issue export ABC-123
 ire bitbucket pr get 42 --repo workspace/repo
 ire bitbucket pipelines latest --repo workspace/repo --branch main
@@ -62,19 +62,23 @@ On failure, still read stdout JSON: `success: false`, `error.code`, `error.messa
 ## Jira workflows
 
 ```sh
+ire issue view KEY
+ire issue view KEY --comments --pull-requests
 ire jira issue get KEY
 ire jira issue export KEY
 ire jira issue search --jql "project = ABC ORDER BY updated DESC" --limit 50
 ire jira issue comments list KEY --limit 50
 ```
 
-Supported Jira flags: `--jira-base-url`, `--jira-email`, `--jira-api-token`, plus `--debug`; `get` and `comments list` support `--raw`. `issue export` supports `--adf-format markdown|raw` and `--download-attachments <dir>`.
+Supported Jira flags: `--jira-base-url`, `--jira-email`, `--jira-api-token`, plus `--debug`. `issue view` supports `--comments` and `--pull-requests` and has no `--raw`. Leftover `get` and `comments list` support `--raw`. `issue export` supports `--adf-format markdown|raw` and `--download-attachments <dir>`.
 
-### Full issue detail
+### Issue view
 
-Use `ire jira issue get KEY` to understand one issue in a single command. Its `data` contains header fields; `testPlan`, `regressionTestingGuidance`, and `regression` as `string | null`; a nullable `parent` and `subtasks` as `{ key, summary, type, status }`; `issueLinks` as `{ relationship, key, summary, type, status }`; the complete comment list as `{ id, author, body, created, updated }`; and development-panel `pullRequests` as `{ title, url, status, branch, repository, author, updated }`. Rich text is plain text. The QA field ids are built in for the target Jira instance; unset fields are `null` on any instance.
+Use `ire issue view KEY` to fetch one issue. Default `data` is the primary record: header fields; `testPlan`, `regressionTestingGuidance`, and `regression` as `string | null`; a nullable `parent` and `subtasks` as `{ key, summary, type, status }`; and `issueLinks` as `{ relationship, key, summary, type, status }`. `comments` and `pullRequests` are absent unless requested. Rich text is plain text. The QA field ids are built in for the target Jira instance; unset fields are `null` on any instance.
 
-The success envelope is version `1.1`. The command performs several provider requests and fails whole when any of them fails. `--raw` returns the fetched provider payloads as `{ issue, comments, pullRequests }`.
+The success envelope is version `1.0`. The default fetch is the issue endpoint only. `--comments` adds every comment as `{ id, author, body, created, updated }`. `--pull-requests` adds development-panel `pullRequests` as `{ title, url, status, branch, repository, author, updated }`. A requested Expansion fails the whole command if its backing request fails.
+
+Leftover `ire jira issue get KEY` is the always-full aggregate (comments and pull requests always present), success envelope `1.1`, with `--raw`.
 
 ### Complete issue export
 
@@ -100,7 +104,7 @@ Configure semantic fields in project or user config:
 
 Mappings are ordered; the first populated ID wins. `sprints` and `storyPoints` are reserved top-level outputs, while other keys appear under `customFields`. Configured empty keys are `null`; unconfigured keys are absent. There are no built-in instance-specific IDs.
 
-`--download-attachments <dir>` writes authenticated attachment bytes to safe basenames and overwrites existing same-name files. JSON remains on stdout. The export excludes development-panel pull requests; `ire jira issue get` returns them.
+`--download-attachments <dir>` writes authenticated attachment bytes to safe basenames and overwrites existing same-name files. JSON remains on stdout. The export excludes development-panel pull requests; `ire issue view --pull-requests` returns them (leftover `ire jira issue get` always includes them).
 
 ## Bitbucket PR workflows
 

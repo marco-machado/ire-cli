@@ -9,6 +9,7 @@ import { jiraProvider } from "./jira.js";
 import { registerAuthCommands } from "./auth-commands.js";
 import { registerBitbucketCommands } from "./bitbucket-commands.js";
 import { registerConfigCommands } from "./config-commands.js";
+import { registerIssueCommands } from "./issue-commands.js";
 import { registerJiraCommands } from "./jira-commands.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -27,6 +28,7 @@ program
 
 registerConfigCommands(program);
 registerAuthCommands(program, registeredProviders);
+registerIssueCommands(program);
 registerJiraCommands(program);
 registerBitbucketCommands(program);
 

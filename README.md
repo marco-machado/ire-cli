@@ -23,7 +23,7 @@ The npm package is `@marco.machado/ire-cli`; the executable is `ire`.
 
 - Stable JSON success and error envelopes with documented exit codes.
 - Normalized, agent-oriented schemas with raw provider payloads where supported.
-- Jira issue retrieval, search, comments, and complete issue exports.
+- Jira issue view, leftover get/search/comments, and complete issue exports.
 - Bitbucket pull request details, lists, comments, changed files, and diffs.
 - Bitbucket Pipelines runs, steps, and logs.
 - Layered configuration with secret redaction and lightweight auth checks.
@@ -73,6 +73,7 @@ For Bitbucket, use `IRE_BITBUCKET_WORKSPACE`, `IRE_BITBUCKET_REPO`, `IRE_BITBUCK
 ### Run
 
 ```sh
+ire issue view ABC-123
 ire jira issue export ABC-123
 ire bitbucket pr get 42 --repo workspace/repository
 ire bitbucket pipelines latest --repo workspace/repository --branch main
@@ -207,6 +208,42 @@ ire config inspect
 
 ## Commands
 
+### Issue
+
+```text
+ire issue view KEY
+```
+
+Jira issue keys are always explicit. The CLI does not infer Jira issue identity from branch names.
+
+Supported options:
+
+- `ire issue view`: `--comments`, `--pull-requests`, `--debug`, Jira config flags.
+
+#### Issue view
+
+`ire issue view KEY` fetches one issue as a normalized primary record: header fields, QA fields, hierarchy, and linked work items. The default fetch is the issue endpoint only. `--comments` and `--pull-requests` request those Expansions; unrequested Expansion keys are absent. A requested Expansion is fail-closed.
+
+The success envelope has `schemaVersion: "1.0"`; default `data` is:
+
+| Field | Type |
+| --- | --- |
+| `key`, `summary`, `status`, `issueType`, `created`, `updated` | `string` (`created`/`updated` are UTC ISO-8601) |
+| `description`, `priority` | `string \| null`, omitted when absent |
+| `project` | `{ key: string, name: string }` |
+| `assignee`, `reporter` | `{ accountId: string, displayName: string } \| null`, omitted when absent |
+| `labels` | `string[]` |
+| `testPlan`, `regressionTestingGuidance`, `regression` | `string \| null` |
+| `parent` | `{ key, summary, type, status } \| null` |
+| `subtasks` | `{ key, summary, type, status }[]` |
+| `issueLinks` | `{ relationship, key, summary, type, status }[]` |
+
+`--comments` adds `comments` as `{ id, author, body, created, updated }[]`, complete across all comment pages. `--pull-requests` adds `pullRequests` as `{ title, url, status, branch, repository, author, updated }[]` from the Jira development panel (private `dev-status` endpoint, Bitbucket only).
+
+Rich text (`description`, comment bodies, `testPlan`, `regressionTestingGuidance`) is rendered as plain text. `testPlan`, `regressionTestingGuidance`, and `regression` resolve from field ids built in for the target Jira instance (`customfield_11747`, `customfield_12213`, `customfield_11734`); `regression` carries the selected option's value, and unset fields are `null` on any instance.
+
+There is no `--raw`. Leftover `ire jira issue get` remains the always-full aggregate, including `--raw`.
+
 ### Jira
 
 ```text
@@ -215,8 +252,6 @@ ire jira issue export KEY
 ire jira issue search --jql "project = ABC ORDER BY updated DESC"
 ire jira issue comments list KEY
 ```
-
-Jira issue keys are always explicit. The CLI does not infer Jira issue identity from branch names.
 
 Supported options:
 
@@ -286,7 +321,7 @@ Configure instance-specific Jira fields under `jira.issueExport.fieldMappings`. 
 
 `--download-attachments <dir>` downloads attachment bytes with Jira authentication after validating the export. Provider filenames are reduced to safe basenames, and existing same-name files are overwritten. The JSON export still goes to stdout.
 
-Development-panel pull requests are not part of the export; `ire jira issue get` returns them. The export does not use heuristic branch matching.
+Development-panel pull requests are not part of the export; `ire issue view --pull-requests` returns them (leftover `ire jira issue get` always includes them). The export does not use heuristic branch matching.
 
 ### Bitbucket pull requests
 
