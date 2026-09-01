@@ -4,9 +4,21 @@ A CLI that reads Jira and Bitbucket data and emits normalized JSON envelopes for
 
 ## Language
 
-**Get**:
-A single-command fetch of one work item in full normalized detail, strict about failures.
-_Avoid_: Fetch, show, view
+**Resource**:
+The noun the command tree is keyed by: issue, pr, repo, or pipeline.
+_Avoid_: provider namespace
+
+**Provider**:
+Jira Cloud or Bitbucket Cloud, the backing system bound to a Resource. issue binds to Jira Cloud; pr, repo, and pipeline bind to Bitbucket Cloud.
+_Avoid_: host, backend, integration
+
+**View**:
+A single-command fetch of one Resource. The default Envelope is the primary record; flags request Expansions. Failures of the primary record or of a requested Expansion fail the whole command.
+_Avoid_: Get, Fetch, show
+
+**Expansion**:
+A collection a View flag requests in addition to the primary record.
+_Avoid_: include, extra, sidecar
 
 **Export**:
 A curated document of a work item intended for offline review, including attachments.

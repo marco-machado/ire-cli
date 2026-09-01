@@ -236,15 +236,27 @@ const pullRequestSchema = z
   })
   .strict();
 
+const jiraIssuePrimaryRecordShape = {
+  ...jiraIssueBaseShape,
+  testPlan: z.string().nullable(),
+  regressionTestingGuidance: z.string().nullable(),
+  regression: z.string().nullable(),
+  parent: relatedIssueSchema.nullable(),
+  subtasks: z.array(relatedIssueSchema),
+  issueLinks: z.array(issueLinkSchema),
+};
+
+const normalizedJiraIssueViewSchema = z
+  .object({
+    ...jiraIssuePrimaryRecordShape,
+    comments: z.array(normalizedJiraCommentSchema).optional(),
+    pullRequests: z.array(pullRequestSchema).optional(),
+  })
+  .strict();
+
 const normalizedEnrichedJiraIssueSchema = z
   .object({
-    ...jiraIssueBaseShape,
-    testPlan: z.string().nullable(),
-    regressionTestingGuidance: z.string().nullable(),
-    regression: z.string().nullable(),
-    parent: relatedIssueSchema.nullable(),
-    subtasks: z.array(relatedIssueSchema),
-    issueLinks: z.array(issueLinkSchema),
+    ...jiraIssuePrimaryRecordShape,
     comments: z.array(normalizedJiraCommentSchema),
     pullRequests: z.array(pullRequestSchema),
   })
@@ -589,18 +601,13 @@ function pullRequestsField(providerDevStatus: unknown): unknown[] {
   });
 }
 
-function normalizeEnrichedJiraIssue(
+function normalizeJiraIssuePrimaryRecord(
   providerIssue: unknown,
-  providerCommentPages: unknown[],
-  providerDevStatus: unknown,
-): NormalizedEnrichedJiraIssue {
+): Record<string, unknown> {
   const issue = asRecord(providerIssue);
   const fields = asRecord(issue?.fields);
-  const comments = providerCommentPages.flatMap((pageValue) => {
-    const pageComments = asRecord(pageValue)?.comments;
-    return Array.isArray(pageComments) ? pageComments : [];
-  });
-  const normalized: Record<string, unknown> = {
+
+  return {
     ...normalizeJiraIssueBase(providerIssue),
     testPlan: qaRichTextField(fields?.[JIRA_TEST_PLAN_FIELD_ID], "testPlan"),
     regressionTestingGuidance: qaRichTextField(
@@ -616,7 +623,55 @@ function normalizeEnrichedJiraIssue(
       ? fields.subtasks.map(relatedIssueField)
       : [],
     issueLinks: issueLinksField(fields?.issuelinks),
-    comments: comments.map(normalizeJiraComment),
+  };
+}
+
+function commentsFromPages(providerCommentPages: unknown[]): unknown[] {
+  return providerCommentPages.flatMap((pageValue) => {
+    const pageComments = asRecord(pageValue)?.comments;
+    return Array.isArray(pageComments) ? pageComments : [];
+  }).map(normalizeJiraComment);
+}
+
+function normalizeJiraIssueView(
+  providerIssue: unknown,
+  expansions: { comments?: unknown[]; pullRequests?: unknown[] } = {},
+): unknown {
+  const normalized: Record<string, unknown> = {
+    ...normalizeJiraIssuePrimaryRecord(providerIssue),
+  };
+
+  if (expansions.comments !== undefined) {
+    normalized.comments = expansions.comments;
+  }
+
+  if (expansions.pullRequests !== undefined) {
+    normalized.pullRequests = expansions.pullRequests;
+  }
+
+  const parsedResult = normalizedJiraIssueViewSchema.safeParse(normalized);
+
+  if (!parsedResult.success) {
+    throw new JiraNormalizedOutputError(
+      parsedResult.error.issues.map((issue) => ({
+        code: issue.code,
+        message: issue.message,
+        path: issue.path.join("."),
+      })),
+    );
+  }
+
+  return parsedResult.data;
+}
+
+function normalizeEnrichedJiraIssue(
+  providerIssue: unknown,
+  providerCommentPages: unknown[],
+  providerDevStatus: unknown,
+): NormalizedEnrichedJiraIssue {
+  const normalized: Record<string, unknown> = {
+    ...normalizeJiraIssuePrimaryRecord(providerIssue),
+    comments: commentsFromPages(providerCommentPages),
     pullRequests: pullRequestsField(providerDevStatus),
   };
   const parsedResult = normalizedEnrichedJiraIssueSchema.safeParse(normalized);
@@ -1095,6 +1150,46 @@ async function getJiraDevStatusDetail(
   }
 
   return body;
+}
+
+type JiraIssueViewOptions = {
+  comments?: boolean;
+  pullRequests?: boolean;
+  fetchImpl?: Fetch;
+  debugRequests?: JiraDebugRequest[];
+};
+
+export async function getJiraIssueView(
+  config: ResolvedConfig,
+  key: string,
+  options: JiraIssueViewOptions = {},
+): Promise<unknown> {
+  assertJiraConfigComplete(config);
+
+  const issue = await getJiraIssue(config, key, {
+    raw: true,
+    fetchImpl: options.fetchImpl,
+    debugRequests: options.debugRequests,
+  });
+  const expansions: { comments?: unknown[]; pullRequests?: unknown[] } = {};
+
+  if (options.comments) {
+    const commentPages = await fetchAllJiraCommentPages(config, key, options);
+    expansions.comments = commentsFromPages(commentPages);
+  }
+
+  if (options.pullRequests) {
+    const issueId = asRecord(issue)?.id;
+
+    if (typeof issueId !== "string" && typeof issueId !== "number") {
+      throw new JiraProviderError("Jira issue payload did not include an issue id");
+    }
+
+    const devStatus = await getJiraDevStatusDetail(config, String(issueId), options);
+    expansions.pullRequests = pullRequestsField(devStatus);
+  }
+
+  return normalizeJiraIssueView(issue, expansions);
 }
 
 export async function getEnrichedJiraIssue(
