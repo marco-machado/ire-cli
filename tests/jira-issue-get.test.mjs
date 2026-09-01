@@ -1157,3 +1157,83 @@ test("jira issue get includes redacted debug metadata on provider failures", asy
   });
   assert.equal(typeof envelope.meta.debug.requests[0].latencyMs, "number");
 });
+
+test("jira issue get rebuilds UUID-based pull-request URLs and keeps image-only testPlan populated", async () => {
+  const hookPath = await writeFetchHook(`
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+
+      if (url === "https://jira.example.test/rest/api/3/issue/ABC-910") {
+        return Response.json({
+          id: "10010",
+          key: "ABC-910",
+          fields: {
+            summary: "Slug URL rebuild",
+            status: { name: "In Progress" },
+            issuetype: { name: "Story" },
+            project: { key: "ABC", name: "Agent Bridge" },
+            labels: [],
+            created: "2026-05-04T12:00:00.000+0000",
+            updated: "2026-05-04T13:00:00.000+0000",
+            customfield_11747: {
+              type: "doc",
+              version: 1,
+              content: [
+                { type: "mediaSingle", content: [{ type: "media", attrs: { id: "media-9", alt: "screen.png" } }] }
+              ]
+            }
+          }
+        });
+      }
+
+      if (url === "https://jira.example.test/rest/api/3/issue/ABC-910/comment?maxResults=100&startAt=0") {
+        return Response.json({ startAt: 0, maxResults: 100, total: 0, comments: [] });
+      }
+
+      if (url === "https://jira.example.test/rest/dev-status/latest/issue/detail?issueId=10010&applicationType=bitbucket&dataType=pullrequest") {
+        return Response.json({
+          errors: [],
+          detail: [{
+            pullRequests: [{
+              id: "#167",
+              name: "ABC-910 ship it",
+              url: "https://bitbucket.org/{01234567-89ab-cdef-0123-456789abcdef}/{fedcba98-7654-3210-fedc-ba9876543210}/pull-requests/167",
+              status: "OPEN",
+              lastUpdate: "2026-05-04T14:00:00.000+0000",
+              source: { branch: "feat/ABC-910-ship" },
+              author: { name: "Dev One" },
+              repositoryName: "myworkspace/myrepo"
+            }]
+          }]
+        });
+      }
+
+      return Response.json({ message: "unexpected url", url }, { status: 500 });
+    };
+  `);
+
+  const result = await runIre(["jira", "issue", "get", "ABC-910"], {
+    nodeArgs: ["--import", hookPath],
+    env: {
+      IRE_JIRA_BASE_URL: "https://jira.example.test",
+      IRE_JIRA_EMAIL: "agent@example.test",
+      IRE_JIRA_API_TOKEN: "jira-secret",
+    },
+  });
+  const envelope = parseJson(result.stdout);
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(envelope.data.testPlan, "screen.png");
+  assert.deepEqual(envelope.data.pullRequests, [
+    {
+      title: "ABC-910 ship it",
+      url: "https://bitbucket.org/myworkspace/myrepo/pull-requests/167",
+      status: "OPEN",
+      branch: "feat/ABC-910-ship",
+      repository: "myworkspace/myrepo",
+      author: "Dev One",
+      updated: "2026-05-04T14:00:00.000Z",
+    },
+  ]);
+});

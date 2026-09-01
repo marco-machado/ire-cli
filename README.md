@@ -253,15 +253,15 @@ The success envelope has `schemaVersion: "1.1"`; its `data` contract is:
 | `comments` | `{ id, author, body, created, updated }[]`, complete across all comment pages |
 | `pullRequests` | `{ title, url, status, branch, repository, author, updated }[]` |
 
-Rich text (`description`, comment bodies, `testPlan`, `regressionTestingGuidance`) is rendered as plain text. `testPlan`, `regressionTestingGuidance`, and `regression` resolve from field ids built in for the target Jira instance (`customfield_11747`, `customfield_12213`, `customfield_11734`); `regression` carries the selected option's value, and unset fields are `null` on any instance. `pullRequests` reads the Jira development panel through the private `dev-status` endpoint, filtered to Bitbucket; the endpoint is undocumented, and the strict failure mode makes a provider change loud rather than silent.
+Rich text (`description`, comment bodies, `testPlan`, `regressionTestingGuidance`) is rendered as plain text. A Jira `media` node contributes its `alt`/id label to the plain text, so an image-only field is a non-empty string rather than a false `null`. `testPlan`, `regressionTestingGuidance`, and `regression` resolve from field ids built in for the target Jira instance (`customfield_11747`, `customfield_12213`, `customfield_11734`); `regression` carries the selected option's value, and unset fields are `null` on any instance. `pullRequests` reads the Jira development panel through the private `dev-status` endpoint, filtered to Bitbucket; the endpoint is undocumented, and the strict failure mode makes a provider change loud rather than silent. Pull-request URLs built from workspace/repository UUIDs are rewritten to the human `workspace/repo` slug when that slug is present.
 
 `--raw` returns every provider payload the command fetched as `{ issue, comments, pullRequests }`, with `comments` as the raw comment pages.
 
 #### Complete Jira issue export
 
-`ire jira issue export KEY` emits one curated issue record containing normalized header fields, sprint/story-point data, a nullable parent, configured semantic fields, all comments, attachment metadata, subtasks, and issue links.
+`ire jira issue export KEY` emits one curated issue record containing normalized header fields, sprint/story-point data, a nullable parent, first-class QA fields, all comments, attachment metadata, subtasks, issue links, and development-panel pull requests.
 
-The standard success envelope has `schemaVersion: "1.0"`; its `data` contract is:
+The standard success envelope has `schemaVersion: "1.1"`; its `data` contract is:
 
 | Field | Type |
 | --- | --- |
@@ -274,19 +274,22 @@ The standard success envelope has `schemaVersion: "1.0"`; its `data` contract is
 | `sprints` | `{ name: string, state: string }[]` |
 | `storyPoints` | `number \| null` |
 | `parent` | `{ key: string, summary: string } \| null` |
-| `customFields` | configured semantic keys with JSON values or `null` |
+| `acceptanceCriteria`, `designs`, `testPlan`, `regressionTestingGuidance`, `architecturalNotes`, `changeImpact`, `releasePlan` | Markdown `string`, raw ADF object, or `null` |
+| `regression`, `deploymentStatus` | option value `string \| null` |
+| `customFields` | configured non-QA semantic keys with JSON values or `null` |
 | `comments` | `{ author, created, body }[]`, with UTC timestamps and Markdown/raw ADF bodies |
 | `attachments` | `{ filename, mimeType, size, contentUrl }[]` |
 | `subtasks` | `{ key, summary, status }[]` |
 | `issueLinks` | `{ relationship, key, summary, type, status }[]` |
+| `pullRequests` | `{ title, url, status, branch, repository, author, updated }[]` |
 
-ADF descriptions, comments, and configured rich-text fields are rendered as Markdown by default. Use `--adf-format raw` to retain ADF objects consistently across every rich-text field.
+ADF descriptions, comments, and rich-text QA fields are rendered as Markdown by default. Use `--adf-format raw` to retain ADF objects consistently across every rich-text field. A Jira `media` node without an inline URL is emitted as `![alt](contentUrl)` when its `alt` matches an attachment filename, so image-only fields stay populated and images survive a single export.
 
-Configure instance-specific Jira fields under `jira.issueExport.fieldMappings`. Each semantic key maps to an ordered list of provider field IDs; the first populated candidate wins. `sprints` and `storyPoints` are reserved output keys. Other configured keys are emitted under `customFields`. Configured-but-empty keys are `null`, unconfigured keys are omitted, and no instance-specific IDs are built in.
+Configure instance-specific Jira fields under `jira.issueExport.fieldMappings`. Each semantic key maps to an ordered list of provider field IDs; the first populated candidate wins. `sprints` and `storyPoints` are reserved output keys. The QA keys above are first-class output fields; any other configured key is emitted under `customFields`. When a mapping is absent, `testPlan`, `regressionTestingGuidance`, and `regression` fall back to ids built in for the target Jira instance (`customfield_11747`, `customfield_12213`, `customfield_11734`). Configured-but-empty keys are `null`, and unset keys with no built-in id are still present and `null`.
 
-`--download-attachments <dir>` downloads attachment bytes with Jira authentication after validating the export. Provider filenames are reduced to safe basenames, and existing same-name files are overwritten. The JSON export still goes to stdout.
+`--download-attachments <dir>` downloads attachment bytes with Jira authentication after validating the export. Provider filenames are reduced to safe basenames, and existing same-name files are overwritten. The JSON export still goes to stdout. Because rich-text media is linked to `attachments[].contentUrl`, a fetch script can write the markdown record and the image bytes from one command with no `--raw`.
 
-Development-panel pull requests are not part of the export; `ire jira issue get` returns them. The export does not use heuristic branch matching.
+`pullRequests` reads the Jira development panel through the private `dev-status` endpoint, filtered to Bitbucket; the endpoint is undocumented, and the strict failure mode makes a provider change loud rather than silent. Pull-request URLs built from workspace/repository UUIDs are rewritten to the human `workspace/repo` slug when that slug is present.
 
 ### Bitbucket pull requests
 

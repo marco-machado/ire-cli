@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Partially superseded by ADR-0004, which enriches `jira issue get`.
+Accepted. Partially superseded by ADR-0004, which enriches `jira issue get`, and by ADR-0005, which makes `jira issue export` the complete ticket record (pull requests and built-in QA field ids).
 
 ## Context
 

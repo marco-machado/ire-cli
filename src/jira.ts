@@ -191,9 +191,9 @@ const normalizedJiraIssueCommentsListSchema = z
   })
   .strict();
 
-const JIRA_TEST_PLAN_FIELD_ID = "customfield_11747";
-const JIRA_REGRESSION_TESTING_GUIDANCE_FIELD_ID = "customfield_12213";
-const JIRA_REGRESSION_FIELD_ID = "customfield_11734";
+export const JIRA_TEST_PLAN_FIELD_ID = "customfield_11747";
+export const JIRA_REGRESSION_TESTING_GUIDANCE_FIELD_ID = "customfield_12213";
+export const JIRA_REGRESSION_FIELD_ID = "customfield_11734";
 const JIRA_ISSUE_SEARCH_FIELDS = [
   "key",
   "summary",
@@ -224,7 +224,7 @@ const issueLinkSchema = z
   })
   .strict();
 
-const pullRequestSchema = z
+export const pullRequestSchema = z
   .object({
     title: z.string(),
     url: z.string(),
@@ -235,6 +235,8 @@ const pullRequestSchema = z
     updated: z.iso.datetime(),
   })
   .strict();
+
+export type NormalizedPullRequest = z.infer<typeof pullRequestSchema>;
 
 const normalizedEnrichedJiraIssueSchema = z
   .object({
@@ -386,6 +388,17 @@ function adfToPlainText(value: unknown): string | undefined {
 
     if (typeof record.text === "string") {
       chunks.push(record.text);
+    }
+
+    if (record.type === "media") {
+      const attrs = asRecord(record.attrs) ?? {};
+      const label =
+        typeof attrs.alt === "string"
+          ? attrs.alt
+          : typeof attrs.id === "string"
+            ? attrs.id
+            : "attachment";
+      chunks.push(label);
     }
 
     if (Array.isArray(record.content)) {
@@ -558,6 +571,46 @@ function issueLinksField(value: unknown): unknown[] {
   });
 }
 
+/**
+ * Rebuild a Bitbucket pull-request URL when the provider emits one built from
+ * workspace/repository UUIDs but also supplies the human `workspace/repo` slug
+ * in `repository`. The UUID-shaped link looks valid but 404s, so we prefer the
+ * slug when it is available and the URL path contains braced-UUID segments.
+ * Otherwise the original URL is returned unchanged.
+ */
+function rewritePullRequestUrlToSlug(url: string, repository: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url;
+  }
+
+  const segments = parsed.pathname.split("/").filter((segment) => segment !== "");
+  const usesUuidPaths = segments.some((segment) => {
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      decoded = segment;
+    }
+    return /^\{[0-9a-fA-F-]{8,}\}$/.test(decoded);
+  });
+  const pullRequestsIndex = segments.findIndex((segment) => segment === "pull-requests");
+  const prId = pullRequestsIndex >= 0 ? segments[pullRequestsIndex + 1] : undefined;
+
+  if (
+    usesUuidPaths &&
+    prId !== undefined &&
+    /^[A-Za-z0-9._-]+$/.test(prId) &&
+    repository.length > 0
+  ) {
+    return `${parsed.origin}/${repository}/pull-requests/${prId}`;
+  }
+
+  return url;
+}
+
 function pullRequestsField(providerDevStatus: unknown): unknown[] {
   const parsedResult = jiraDevStatusSchema.safeParse(providerDevStatus);
 
@@ -575,18 +628,40 @@ function pullRequestsField(providerDevStatus: unknown): unknown[] {
   return parsedResult.data.detail.flatMap((entry) => {
     return entry.pullRequests.map((pullRequestValue) => {
       const pullRequest = asRecord(pullRequestValue);
+      const repository = asRecord(pullRequest)?.repositoryName;
 
       return {
         title: pullRequest?.name,
-        url: pullRequest?.url,
+        url: rewritePullRequestUrlToSlug(
+          typeof pullRequest?.url === "string" ? pullRequest.url : "",
+          typeof repository === "string" ? repository : "",
+        ),
         status: pullRequest?.status,
         branch: asRecord(pullRequest?.source)?.branch,
-        repository: pullRequest?.repositoryName,
+        repository,
         author: asRecord(pullRequest?.author)?.name,
         updated: normalizeTimestamp(pullRequest?.lastUpdate),
       };
     });
   });
+}
+
+export function normalizePullRequests(providerDevStatus: unknown): NormalizedPullRequest[] {
+  const parsedResult = pullRequestSchema.array().safeParse(
+    pullRequestsField(providerDevStatus),
+  );
+
+  if (!parsedResult.success) {
+    throw new JiraNormalizedOutputError(
+      parsedResult.error.issues.map((issue) => ({
+        code: issue.code,
+        message: issue.message,
+        path: `pullRequests.${issue.path.join(".")}`,
+      })),
+    );
+  }
+
+  return parsedResult.data;
 }
 
 function normalizeEnrichedJiraIssue(
@@ -1026,17 +1101,13 @@ export async function fetchAllJiraCommentPages(
   return pages;
 }
 
-async function getJiraDevStatusDetail(
-  config: ResolvedConfig & {
-    jira: {
-      baseUrl: { value: string };
-      email: { value: string };
-      apiToken: { value: string };
-    };
-  },
+export async function getJiraDevStatusDetail(
+  config: ResolvedConfig,
   issueId: string,
   options: JiraIssueGetOptions,
 ): Promise<unknown> {
+  assertJiraConfigComplete(config);
+
   const url = new URL(
     `${normalizeBaseUrl(config.jira.baseUrl.value)}/rest/dev-status/latest/issue/detail`,
   );

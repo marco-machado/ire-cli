@@ -119,7 +119,7 @@ export function registerJiraCommands(program: Command): void {
           debugRequests: flags.debug ? debugRequests : undefined,
         });
 
-        writeEnvelope({ success: true, schemaVersion: "1.0", data, meta });
+        writeEnvelope({ success: true, schemaVersion: "1.1", data, meta });
       } catch (error) {
         if (handleProviderError(error, meta)) return;
         writeEnvelope({
