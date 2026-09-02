@@ -1,0 +1,16 @@
+{
+  "success": false,
+  "schemaVersion": "1.0",
+  "error": {
+    "code": "CONFIG_VALIDATION_ERROR",
+    "message": "Invalid project config at /tmp/ire-verify-config-inspect-baseline/validation-error/.ire/config.json",
+    "details": [
+      {
+        "code": "invalid_type",
+        "message": "Invalid input: expected string, received number",
+        "path": "jira.baseUrl"
+      }
+    ]
+  },
+  "meta": {}
+}
