@@ -88,7 +88,7 @@ Root: `.cursor/skills/verify-ire-cli/evidence/<run-id>/`. Cleanup never deletes 
 
 Each `run-ire.sh --step <id>` writes:
 
-- `command.txt` — argv with `--jira-api-token` / `--bitbucket-api-token` values replaced by `<redacted>`
+- `command.txt` — `node <dist/cli.js> <argv>` with `--jira-api-token` / `--bitbucket-api-token` values replaced by `<redacted>`
 - `env.txt` — `HOME`, cwd, extra env (`IRE_*_API_TOKEN` values redacted)
 - `stdout.txt` — raw stdout (the envelope)
 - `stdout.json` — parsed envelope when stdout is JSON

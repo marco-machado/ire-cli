@@ -1,0 +1,47 @@
+{
+  "success": true,
+  "schemaVersion": "1.0",
+  "data": {
+    "config": {
+      "jira": {
+        "baseUrl": {
+          "value": "https://cwd-config-jira.example.test",
+          "source": "project-config"
+        },
+        "email": {
+          "value": "cwd-env@example.test",
+          "source": "project-env"
+        },
+        "apiToken": {
+          "value": null,
+          "source": "default"
+        },
+        "issueExport": {
+          "fieldMappings": {
+            "value": {},
+            "source": "default"
+          }
+        }
+      },
+      "bitbucket": {
+        "workspace": {
+          "value": null,
+          "source": "default"
+        },
+        "repo": {
+          "value": null,
+          "source": "default"
+        },
+        "email": {
+          "value": null,
+          "source": "default"
+        },
+        "apiToken": {
+          "value": null,
+          "source": "default"
+        }
+      }
+    }
+  },
+  "meta": {}
+}

@@ -1,0 +1,10 @@
+{
+  "node": "v22.14.0",
+  "exitCode": 2,
+  "stdoutBytes": 410,
+  "stderrBytes": 0,
+  "json": true,
+  "success": false,
+  "schemaVersion": "1.0",
+  "errorCode": "CONFIG_VALIDATION_ERROR"
+}

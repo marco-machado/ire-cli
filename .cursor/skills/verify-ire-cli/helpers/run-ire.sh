@@ -120,10 +120,7 @@ redact_env_record() {
   done
 }
 
-{
-  echo "node $CLI ${IRE_ARGS[*]}"
-} > "$STEP_DIR/command.raw.txt"
-redact_token_args "${IRE_ARGS[@]}" > "$STEP_DIR/command.txt"
+printf 'node %s %s\n' "$CLI" "$(redact_token_args "${IRE_ARGS[@]}")" > "$STEP_DIR/command.txt"
 {
   echo "HOME=$HOME_DIR"
   echo "cwd=$CWD"
