@@ -135,29 +135,35 @@ for pair in "${EXTRA_ENV[@]}"; do
   ENV_ASSIGN+=("$pair")
 done
 
+run_cli() {
+  if [[ ${#ENV_ASSIGN[@]} -gt 0 ]]; then
+    env -i -C "$CWD" \
+      PATH="$PATH" \
+      HOME="$HOME_DIR" \
+      PWD="$CWD" \
+      LANG="${LANG:-C.UTF-8}" \
+      LC_ALL="${LC_ALL:-C.UTF-8}" \
+      TZ="${TZ:-UTC}" \
+      "${ENV_ASSIGN[@]}" \
+      node "$CLI" "${IRE_ARGS[@]}" \
+      >"$STEP_DIR/stdout.txt" \
+      2>"$STEP_DIR/stderr.txt"
+  else
+    env -i -C "$CWD" \
+      PATH="$PATH" \
+      HOME="$HOME_DIR" \
+      PWD="$CWD" \
+      LANG="${LANG:-C.UTF-8}" \
+      LC_ALL="${LC_ALL:-C.UTF-8}" \
+      TZ="${TZ:-UTC}" \
+      node "$CLI" "${IRE_ARGS[@]}" \
+      >"$STEP_DIR/stdout.txt" \
+      2>"$STEP_DIR/stderr.txt"
+  fi
+}
+
 set +e
-if [[ ${#ENV_ASSIGN[@]} -gt 0 ]]; then
-  env -i \
-    PATH="$PATH" \
-    HOME="$HOME_DIR" \
-    LANG="${LANG:-C.UTF-8}" \
-    LC_ALL="${LC_ALL:-C.UTF-8}" \
-    TZ="${TZ:-UTC}" \
-    "${ENV_ASSIGN[@]}" \
-    node "$CLI" "${IRE_ARGS[@]}" \
-    >"$STEP_DIR/stdout.txt" \
-    2>"$STEP_DIR/stderr.txt"
-else
-  env -i \
-    PATH="$PATH" \
-    HOME="$HOME_DIR" \
-    LANG="${LANG:-C.UTF-8}" \
-    LC_ALL="${LC_ALL:-C.UTF-8}" \
-    TZ="${TZ:-UTC}" \
-    node "$CLI" "${IRE_ARGS[@]}" \
-    >"$STEP_DIR/stdout.txt" \
-    2>"$STEP_DIR/stderr.txt"
-fi
+run_cli
 EXIT_CODE=$?
 set -e
 
